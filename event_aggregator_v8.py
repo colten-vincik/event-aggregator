@@ -41,6 +41,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from bs4 import BeautifulSoup
 from openpyxl import Workbook
+
+# Load .env if present (local dev)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -1100,7 +1107,12 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
 _EB_TOKEN = _os.environ.get("EVENTBRITE_TOKEN", "")
 
 def fetch_eventbrite_api(location, cfg, max_pages=5, tag=""):
-    """Eventbrite REST API — private token, replaces the scraper."""
+    """Eventbrite REST API — /v3/events/search/ was deprecated in 2023;
+    this function is a no-op until Eventbrite restores public search access."""
+    return []
+
+def _fetch_eventbrite_api_disabled(location, cfg, max_pages=5, tag=""):
+    """Kept for reference — disabled because /v3/events/search/ returns 404."""
     city_key = _city_key(location)
     if not city_key: return []
     city_name = location.split(",")[0].strip()
