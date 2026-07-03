@@ -996,6 +996,194 @@ def fetch_yelp_events(location, cfg, max_pages=2, tag=""):
     RUNLOG.source("Yelp Events", location, len(all_events))
     return all_events
 
+# ── 9. Ticketmaster Discovery API ────────────────────────────────────────────
+
+_TM_KEY = "BGswnLdK4KPbJvaJYV3X1lHwiftvGMvo"
+
+def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
+    """Ticketmaster Discovery API v2 — free, 5 000 calls/day."""
+    city_key = _city_key(location)
+    if not city_key: return []
+    state = cfg.get("state", "")
+    city_name = location.split(",")[0].strip()
+    tprint(f"  [{tag}] → Ticketmaster ({city_name})…")
+    all_events, seen = [], set()
+    base = "https://app.ticketmaster.com/discovery/v2/events.json"
+    for page in range(0, max_pages):
+        params = {
+            "apikey":  _TM_KEY,
+            "city":    city_name,
+            "stateCode": state,
+            "countryCode": "US",
+            "size":    50,
+            "page":    page,
+            "sort":    "date,asc",
+        }
+        try:
+            r = SESSION.get(base, params=params, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            tprint(f"  ⚠  Ticketmaster error: {e}")
+            RUNLOG.http_error(base, e)
+            break
+
+        items = (data.get("_embedded") or {}).get("events", [])
+        if not items:
+            break
+
+        for item in items:
+            name = item.get("name", "").strip()
+            if not name: continue
+            key = name.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            # Date
+            dates  = item.get("dates", {})
+            start  = dates.get("start", {})
+            date_str = start.get("localDate", "") or parse_date(start.get("dateTime", ""))
+
+            # Venue
+            venues   = (item.get("_embedded") or {}).get("venues", [])
+            venue_name = venues[0].get("name", "") if venues else ""
+            address_parts = []
+            if venues:
+                v = venues[0]
+                line1 = (v.get("address") or {}).get("line1", "")
+                if line1: address_parts.append(line1)
+                city_v  = (v.get("city") or {}).get("name", "")
+                state_v = (v.get("state") or {}).get("stateCode", "")
+                if city_v:  address_parts.append(city_v)
+                if state_v: address_parts.append(state_v)
+            address_str = ", ".join(address_parts)
+
+            # Price
+            price_str = ""
+            price_ranges = item.get("priceRanges", [])
+            if price_ranges:
+                lo = price_ranges[0].get("min")
+                hi = price_ranges[0].get("max")
+                if lo is not None:
+                    price_str = f"${lo:.0f}" + (f"–${hi:.0f}" if hi and hi != lo else "")
+
+            # URL
+            url = item.get("url", "")
+
+            # Category
+            segment = ""
+            classifications = item.get("classifications", [])
+            if classifications:
+                seg_obj = classifications[0].get("segment", {})
+                segment = seg_obj.get("name", "")
+            cat = {
+                "Music": "Music", "Sports": "Sports",
+                "Arts & Theatre": "Arts & Theatre",
+                "Film": "Film", "Miscellaneous": "Entertainment",
+            }.get(segment, classify(name))
+
+            all_events.append(ev(name, cat, date_str, "", venue_name,
+                                 address_str, location, price_str, url, "Ticketmaster"))
+
+        page_info = data.get("page", {})
+        if page >= page_info.get("totalPages", 1) - 1:
+            break
+
+    tprint(f"  [{tag}] ✓ Ticketmaster → {len(all_events)}")
+    RUNLOG.source("Ticketmaster", location, len(all_events))
+    return all_events
+
+
+# ── 10. Eventbrite API ───────────────────────────────────────────────────────
+
+_EB_TOKEN = "SW3BPXZ6JTRCZVCIJI7J"
+
+def fetch_eventbrite_api(location, cfg, max_pages=5, tag=""):
+    """Eventbrite REST API — private token, replaces the scraper."""
+    city_key = _city_key(location)
+    if not city_key: return []
+    city_name = location.split(",")[0].strip()
+    state     = cfg.get("state", "")
+    tprint(f"  [{tag}] → Eventbrite API ({city_name})…")
+    all_events, seen = [], set()
+
+    # Geocode city to get lat/lon for location-based search
+    lat, lon, _ = geocode(location)
+    if not lat:
+        tprint(f"  [{tag}] ⚠  Eventbrite API: geocode failed, skipping")
+        return []
+
+    base = "https://www.eventbriteapi.com/v3/events/search/"
+    today_iso = datetime.today().strftime("%Y-%m-%dT00:00:00Z")
+    continuation = None
+
+    for _ in range(max_pages):
+        params = {
+            "location.latitude":  lat,
+            "location.longitude": lon,
+            "location.within":    "25mi",
+            "start_date.range_start": today_iso,
+            "expand":   "venue,ticket_availability",
+            "sort_by":  "date",
+            "page_size": 50,
+        }
+        if continuation:
+            params["continuation"] = continuation
+
+        hdrs = {"Authorization": f"Bearer {_EB_TOKEN}"}
+        try:
+            r = SESSION.get(base, params=params, headers=hdrs, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            tprint(f"  ⚠  Eventbrite API error: {e}")
+            RUNLOG.http_error(base, e)
+            break
+
+        for item in data.get("events", []):
+            name = (item.get("name") or {}).get("text", "").strip()
+            if not name: continue
+            key = name.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            date_str = parse_date((item.get("start") or {}).get("local", ""))
+            time_str = parse_time((item.get("start") or {}).get("local", ""))
+
+            venue_obj = item.get("venue") or {}
+            venue_name = venue_obj.get("name", "")
+            addr_obj   = venue_obj.get("address") or {}
+            address_str = addr_obj.get("localized_address_display", "")
+
+            # Price
+            ticket_av = item.get("ticket_availability") or {}
+            price_str = ""
+            if ticket_av.get("is_free"):
+                price_str = "Free"
+            else:
+                lo = ticket_av.get("minimum_ticket_price") or {}
+                hi = ticket_av.get("maximum_ticket_price") or {}
+                lo_v = lo.get("major_value")
+                hi_v = hi.get("major_value")
+                if lo_v:
+                    price_str = f"${lo_v}" + (f"–${hi_v}" if hi_v and hi_v != lo_v else "")
+
+            url = item.get("url", "")
+            cat = classify(name)
+
+            all_events.append(ev(name, cat, date_str, time_str, venue_name,
+                                 address_str, location, price_str, url, "Eventbrite"))
+
+        pagination = data.get("pagination") or {}
+        continuation = pagination.get("continuation")
+        if not pagination.get("has_more_items") or not continuation:
+            break
+
+    tprint(f"  [{tag}] ✓ Eventbrite API → {len(all_events)}")
+    RUNLOG.source("Eventbrite API", location, len(all_events))
+    return all_events
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EVENT SOURCES — NYC-SPECIFIC
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1325,12 +1513,14 @@ def fetch_city(location, skip_attractions=False, source_workers=6):
         ]
     if cfg:
         event_tasks += [
-            partial(fetch_timeout,      location, cfg, tag=tag),
-            partial(fetch_patch,        location, cfg, tag=tag),
-            partial(fetch_eventbrite,   location, cfg, tag=tag),
-            partial(fetch_songkick,     location, cfg, tag=tag),  # uses verified sk_slug
-            partial(fetch_dostuff,      location, cfg, tag=tag),
-            partial(fetch_yelp_events,  location, cfg, tag=tag),
+            partial(fetch_timeout,        location, cfg, tag=tag),
+            partial(fetch_patch,          location, cfg, tag=tag),
+            partial(fetch_eventbrite,     location, cfg, tag=tag),
+            partial(fetch_eventbrite_api, location, cfg, tag=tag),
+            partial(fetch_songkick,       location, cfg, tag=tag),
+            partial(fetch_dostuff,        location, cfg, tag=tag),
+            partial(fetch_yelp_events,    location, cfg, tag=tag),
+            partial(fetch_ticketmaster,   location, cfg, tag=tag),
             # Bandsintown disabled — returns 403 (actively blocks scrapers)
         ]
     event_tasks.append(partial(fetch_allevents, location, tag=tag))
