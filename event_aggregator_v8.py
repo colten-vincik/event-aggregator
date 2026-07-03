@@ -1197,6 +1197,120 @@ def _fetch_eventbrite_api_disabled(location, cfg, max_pages=5, tag=""):
     return all_events
 
 
+# ── 11. National Park Service API ────────────────────────────────────────────
+
+_NPS_KEY = _os.environ.get("NPS_API_KEY", "")
+
+def fetch_nps(location, cfg, tag=""):
+    """NPS Events API — free, covers all national parks by state."""
+    state = cfg.get("state", "")
+    if not state or not _NPS_KEY: return []
+    tprint(f"  [{tag}] → NPS Events ({state})…")
+    all_events, seen = [], set()
+    start = 0
+    while True:
+        try:
+            r = SESSION.get("https://developer.nps.gov/api/v1/events", params={
+                "api_key":   _NPS_KEY,
+                "stateCode": state,
+                "limit":     50,
+                "start":     start,
+            }, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            tprint(f"  ⚠  NPS error: {e}")
+            RUNLOG.http_error("https://developer.nps.gov/api/v1/events", e)
+            break
+
+        items = data.get("data", [])
+        if not items:
+            break
+
+        for item in items:
+            name = item.get("title", "").strip()
+            if not name: continue
+            key = name.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            date_str = parse_date(item.get("date") or item.get("datestart", ""))
+            # times is a list like [{"timestart":"09:30 AM",...}]
+            times_raw = item.get("times", [])
+            if isinstance(times_raw, str):
+                try: times_raw = json.loads(times_raw.replace("'", '"'))
+                except: times_raw = []
+            time_str = times_raw[0].get("timestart", "") if times_raw else ""
+
+            loc      = item.get("location", "")
+            park     = item.get("parkfullname") or item.get("organizationname", "")
+            url      = item.get("infourl") or item.get("regresurl", "")
+            price_str = "Free" if item.get("isfree") == "true" else ""
+            cat      = classify(name)
+
+            all_events.append(ev(name, cat, date_str, time_str, park,
+                                 loc, location, price_str, url, "NPS"))
+
+        total = int(data.get("total", 0))
+        start += len(items)
+        if start >= total:
+            break
+
+    tprint(f"  [{tag}] ✓ NPS → {len(all_events)}")
+    RUNLOG.source("NPS", location, len(all_events))
+    return all_events
+
+
+# ── 12. Socrata Open Data (city permit portals) ───────────────────────────────
+
+# Only Chicago publishes a usable special-events dataset on Socrata.
+# Other cities use proprietary portals or don't expose permit data publicly.
+_SOCRATA_PORTALS = {
+    "chicago": ("data.cityofchicago.org", "xgse-8eg7",
+                "event_details", "date", None, "venue_address"),
+}
+
+def fetch_socrata_permits(location, cfg, tag=""):
+    """Socrata Open Data — special event permits (Chicago only for now)."""
+    city_key   = _city_key(location)
+    portal_cfg = _SOCRATA_PORTALS.get(city_key)
+    if not portal_cfg: return []
+    domain, dataset, name_col, date_col, _, loc_col = portal_cfg
+    tprint(f"  [{tag}] → City Permits / {domain}…")
+    today = datetime.today().strftime("%Y-%m-%d")
+    url   = f"https://{domain}/resource/{dataset}.json"
+    try:
+        r = SESSION.get(url, params={
+            "$limit": 200,
+            "$where": f"{date_col} >= '{today}'",
+            "$order": f"{date_col} ASC",
+        }, timeout=20)
+        r.raise_for_status()
+        rows = r.json()
+    except Exception as e:
+        tprint(f"  ⚠  Socrata ({domain}) error: {e}")
+        RUNLOG.http_error(url, e)
+        return []
+
+    all_events, seen = [], set()
+    for row in rows:
+        name = str(row.get(name_col) or "").strip()
+        if not name or len(name) < 4: continue
+        key = name.lower()[:60]
+        if key in seen: continue
+        seen.add(key)
+        date_str  = parse_date(row.get(date_col, ""))
+        time_str  = row.get("start_time", "")
+        venue     = str(row.get("venue") or "").strip()
+        loc_str   = str(row.get(loc_col) or "").strip()
+        all_events.append(ev(name, classify(name), date_str, time_str,
+                             venue, loc_str, location, "", "", "City Permits"))
+
+    tprint(f"  [{tag}] ✓ City Permits → {len(all_events)}")
+    RUNLOG.source("City Permits", location, len(all_events))
+    return all_events
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EVENT SOURCES — NYC-SPECIFIC
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1534,6 +1648,8 @@ def fetch_city(location, skip_attractions=False, source_workers=6):
             partial(fetch_dostuff,        location, cfg, tag=tag),
             partial(fetch_yelp_events,    location, cfg, tag=tag),
             partial(fetch_ticketmaster,   location, cfg, tag=tag),
+            partial(fetch_nps,            location, cfg, tag=tag),
+            partial(fetch_socrata_permits,location, cfg, tag=tag),
             # Bandsintown disabled — returns 403 (actively blocks scrapers)
         ]
     event_tasks.append(partial(fetch_allevents, location, tag=tag))
