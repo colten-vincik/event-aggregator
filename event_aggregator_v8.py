@@ -998,7 +998,8 @@ def fetch_yelp_events(location, cfg, max_pages=2, tag=""):
 
 # ── 9. Ticketmaster Discovery API ────────────────────────────────────────────
 
-_TM_KEY = "BGswnLdK4KPbJvaJYV3X1lHwiftvGMvo"
+import os as _os
+_TM_KEY = _os.environ.get("TICKETMASTER_API_KEY", "")
 
 def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
     """Ticketmaster Discovery API v2 — free, 5 000 calls/day."""
@@ -1096,7 +1097,7 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
 
 # ── 10. Eventbrite API ───────────────────────────────────────────────────────
 
-_EB_TOKEN = "SW3BPXZ6JTRCZVCIJI7J"
+_EB_TOKEN = _os.environ.get("EVENTBRITE_TOKEN", "")
 
 def fetch_eventbrite_api(location, cfg, max_pages=5, tag=""):
     """Eventbrite REST API — private token, replaces the scraper."""
