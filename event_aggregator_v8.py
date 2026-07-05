@@ -1339,6 +1339,69 @@ def fetch_socrata_permits(location, cfg, tag=""):
 #  EVENT SOURCES — NYC-SPECIFIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def fetch_nyc_parks(max_pages=10, tag=""):
+    """NYC Parks event-list — free city-run events including Movies Under the Stars,
+    summer concerts, pool programs, fitness classes, and theater in the parks."""
+    tprint(f"  [{tag}] → NYC Parks events…")
+    base   = "https://www.nycgovparks.org"
+    all_events, seen = [], set()
+
+    for page in range(1, max_pages + 1):
+        url = f"{base}/events/event-list" + (f"/p{page}" if page > 1 else "")
+        r   = get(url, min_gap=1.2, hdrs={"Referer": base + "/"})
+        if not r: break
+        soup = BeautifulSoup(r.text, "lxml")
+
+        event_links = [a for a in soup.select("a[href]")
+                       if re.match(r"/events/20\d\d/\d\d/\d\d/", a.get("href", ""))]
+        if not event_links:
+            break
+
+        for a in event_links:
+            href  = a["href"]
+            title = a.get_text(strip=True)
+            if not title or len(title) < 4: continue
+            key = title.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            # Date from URL: /events/YYYY/MM/DD/slug
+            m = re.match(r"/events/(\d{4}/\d{2}/\d{2})/", href)
+            date_str = m.group(1).replace("/", "-") if m else ""
+
+            # Parent block has "at VENUE , BOROUGH  HH:MM – HH:MM  description"
+            parent = a.find_parent(["li", "div", "article", "section"])
+            block  = parent.get_text(" ", strip=True) if parent else ""
+
+            # Extract venue: text after " at " and before borough/time
+            venue_m = re.search(r"\bat\s+(.+?)(?:\s*,\s*(?:Manhattan|Brooklyn|Queens|Bronx|Staten Island))", block, re.I)
+            venue   = venue_m.group(1).strip() if venue_m else ""
+
+            # Extract borough
+            boro_m  = re.search(r"(Manhattan|Brooklyn|Queens|Bronx|Staten Island)", block, re.I)
+            borough = boro_m.group(1) if boro_m else "New York"
+
+            # Extract start time: "12:00 p.m." or "7:00 p.m."
+            time_m  = re.search(r"(\d{1,2}:\d{2}\s*[ap]\.m\.)", block, re.I)
+            time_str = time_m.group(1).replace(".", "").replace(" ", "").upper() if time_m else ""
+
+            url_full = base + href
+            all_events.append(ev(title, classify(title), date_str, time_str,
+                                 venue, "", f"{borough}, NY",
+                                 "Free", url_full, "NYC Parks",
+                                 trusted=True))
+
+        # Stop if no more pages
+        next_links = [a for a in soup.select("a[href*='event-list']")
+                      if f"p{page+1}" in a.get("href", "")]
+        if not next_links:
+            break
+
+    tprint(f"  [{tag}] ✓ NYC Parks → {len(all_events)}")
+    RUNLOG.source("NYC Parks", "New York, NY", len(all_events))
+    return all_events
+
+
 def fetch_skint(max_items=40, tag=""):
     """The Skint — free NYC events, RSS feed. Individual event posts only."""
     tprint(f"  [{tag}] → The Skint (free NYC events)…")
@@ -1731,6 +1794,7 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
             partial(fetch_summerstage,    6,        tag=tag),
             partial(fetch_prospect_park,  5,        tag=tag),
             partial(fetch_skint,          40,       tag=tag),
+            partial(fetch_nyc_parks,      20,       tag=tag),
         ]
     if cfg:
         event_tasks += [
