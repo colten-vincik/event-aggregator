@@ -1147,6 +1147,9 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag="",
     if not city_key: return []
     state = cfg.get("state", "")
     city_name = location.split(",")[0].strip()
+    if not _TM_KEY:
+        tprint(f"  [{tag}] ⚠  Ticketmaster: no API key — skipping")
+        return []
     tprint(f"  [{tag}] → Ticketmaster ({city_name})…")
     all_events, seen = [], set()
     base = "https://app.ticketmaster.com/discovery/v2/events.json"
@@ -1164,6 +1167,10 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag="",
         if date_to:   params["endDateTime"]   = f"{date_to}T23:59:59Z"
         try:
             r = SESSION.get(base, params=params, timeout=15)
+            if r.status_code == 401:
+                tprint(f"  [{tag}] ⚠  Ticketmaster: 401 Unauthorized — check TICKETMASTER_API_KEY env var")
+                RUNLOG.http_error(base, "401 Unauthorized")
+                break
             r.raise_for_status()
             data = r.json()
         except Exception as e:
@@ -1863,15 +1870,15 @@ LIMIT 200
     headers = {"Accept": "application/sparql-results+json",
                "User-Agent": "EventAggregator/8.0 (coltenvincik@gmail.com)"}
     bindings = []
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            wait = 5 * (2 ** attempt)   # 5s, 10s, 20s
-            time.sleep(wait)
+            if attempt > 0:
+                time.sleep(15)   # only sleep on retry
             resp = SESSION.get("https://query.wikidata.org/sparql",
                 params={"query": sparql, "format": "json"},
-                headers=headers, timeout=40)
+                headers=headers, timeout=25)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 30))
+                retry_after = int(resp.headers.get("Retry-After", 20))
                 tprint(f"  [{tag}] ⚠  Wikidata 429 — waiting {retry_after}s…")
                 time.sleep(retry_after)
                 continue
@@ -1880,7 +1887,7 @@ LIMIT 200
             break
         except Exception as e:
             tprint(f"  [{tag}] ⚠  Wikidata attempt {attempt+1}: {e}")
-            if attempt == 2:
+            if attempt == 1:
                 return []
     places, seen = [], set()
     for b in bindings:
