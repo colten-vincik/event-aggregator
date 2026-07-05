@@ -164,6 +164,26 @@
     background: var(--bg); border: 1px solid var(--border); color: var(--muted);
   }
 
+  /* ── Availability grid ───────────────────────────────────────────────── */
+  .avail-row {
+    display: flex; align-items: center; gap: 10px; padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .avail-row:last-child { border-bottom: none; }
+  .avail-day-toggle { display: flex; align-items: center; gap: 6px; min-width: 80px; }
+  .avail-day-toggle input { cursor: pointer; }
+  .avail-day-label { font-size: 13px; font-weight: 600; cursor: pointer; }
+  .avail-times { display: flex; align-items: center; gap: 6px; flex: 1; }
+  .avail-times input[type=time] {
+    width: 110px; padding: 5px 8px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: 5px; background: #fff; color: var(--text);
+  }
+  .avail-times input[type=time]:disabled { opacity: .4; }
+  .avail-allday { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .avail-allday input { cursor: pointer; }
+  .avail-row.unavailable .avail-times,
+  .avail-row.unavailable .avail-allday { opacity: .3; pointer-events: none; }
+
   /* ── Event browser ───────────────────────────────────────────────────── */
   #browser-panel { display: none; }
   .browser-toolbar {
@@ -327,16 +347,29 @@
       <div class="filter-block">
         <label class="filter-toggle">
           <input type="checkbox" id="avail-enable" onchange="toggleFilter('avail')">
-          <span class="filter-label">⏰ Weekday Availability</span>
+          <span class="filter-label">⏰ Availability</span>
         </label>
         <div class="filter-body" id="body-avail">
-          <div class="filter-hint">Weekday events (Mon–Fri) with a known start time before this cutoff are removed. Weekend events and events with no listed time are always kept.</div>
-          <div style="display:flex; align-items:center; gap:10px;">
-            <label style="margin:0; font-size:13px; white-space:nowrap;">Available after</label>
-            <input type="time" id="weekday-after" value="17:00"
-                   style="width:130px; padding:8px 10px; border:1px solid var(--border);
-                          border-radius:6px; font-size:14px; color:var(--text); background:#fff;">
-            <span style="font-size:13px; color:var(--muted);">on weekdays</span>
+          <div class="filter-hint">
+            Check the days you're available and set a time window. Events with no listed time always pass.
+            Leave "From / To" blank for all-day availability on that day.
+          </div>
+          <div id="avail-grid" style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+            <!-- rows built by JS -->
+          </div>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button type="button" onclick="availPreset('after5')"
+              style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;">
+              Weekdays after 5 PM
+            </button>
+            <button type="button" onclick="availPreset('weekends')"
+              style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;">
+              Weekends only
+            </button>
+            <button type="button" onclick="availPreset('clear')"
+              style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;color:var(--muted);">
+              Clear all
+            </button>
           </div>
         </div>
       </div>
@@ -534,6 +567,99 @@ function toggleFilter(key) {
   document.getElementById('body-' + key).style.display = enabled ? 'block' : 'none';
 }
 
+// ── Availability grid ─────────────────────────────────────────────────────────
+const DAYS = [
+  {dow:0, short:'Mon', label:'Monday'},
+  {dow:1, short:'Tue', label:'Tuesday'},
+  {dow:2, short:'Wed', label:'Wednesday'},
+  {dow:3, short:'Thu', label:'Thursday'},
+  {dow:4, short:'Fri', label:'Friday'},
+  {dow:5, short:'Sat', label:'Saturday'},
+  {dow:6, short:'Sun', label:'Sunday'},
+];
+
+function buildAvailGrid() {
+  const grid = document.getElementById('avail-grid');
+  grid.innerHTML = '';
+  DAYS.forEach(({dow, short, label}) => {
+    const row = document.createElement('div');
+    row.className = 'avail-row unavailable';
+    row.id = `avail-row-${dow}`;
+    row.innerHTML = `
+      <div class="avail-day-toggle">
+        <input type="checkbox" id="avail-day-${dow}" onchange="toggleAvailDay(${dow})">
+        <label class="avail-day-label" for="avail-day-${dow}" title="${label}">${short}</label>
+      </div>
+      <label class="avail-allday">
+        <input type="checkbox" id="avail-allday-${dow}" checked onchange="toggleAllDay(${dow})">
+        All day
+      </label>
+      <div class="avail-times" id="avail-times-${dow}" style="display:none">
+        <span style="font-size:12px;color:var(--muted)">From</span>
+        <input type="time" id="avail-from-${dow}" value="17:00">
+        <span style="font-size:12px;color:var(--muted)">To</span>
+        <input type="time" id="avail-to-${dow}" value="23:00">
+      </div>`;
+    grid.appendChild(row);
+  });
+}
+
+function toggleAvailDay(dow) {
+  const enabled = document.getElementById(`avail-day-${dow}`).checked;
+  document.getElementById(`avail-row-${dow}`).classList.toggle('unavailable', !enabled);
+}
+
+function toggleAllDay(dow) {
+  const allDay = document.getElementById(`avail-allday-${dow}`).checked;
+  document.getElementById(`avail-times-${dow}`).style.display = allDay ? 'none' : 'flex';
+}
+
+function availPreset(name) {
+  // Reset all days first
+  DAYS.forEach(({dow}) => {
+    document.getElementById(`avail-day-${dow}`).checked = false;
+    document.getElementById(`avail-allday-${dow}`).checked = true;
+    document.getElementById(`avail-times-${dow}`).style.display = 'none';
+    document.getElementById(`avail-row-${dow}`).classList.add('unavailable');
+  });
+
+  if (name === 'after5') {
+    // Mon–Fri, 5 PM–11 PM
+    [0,1,2,3,4].forEach(dow => {
+      document.getElementById(`avail-day-${dow}`).checked = true;
+      document.getElementById(`avail-allday-${dow}`).checked = false;
+      document.getElementById(`avail-from-${dow}`).value = '17:00';
+      document.getElementById(`avail-to-${dow}`).value   = '23:00';
+      document.getElementById(`avail-times-${dow}`).style.display = 'flex';
+      document.getElementById(`avail-row-${dow}`).classList.remove('unavailable');
+    });
+  } else if (name === 'weekends') {
+    // Sat–Sun, all day
+    [5,6].forEach(dow => {
+      document.getElementById(`avail-day-${dow}`).checked = true;
+      document.getElementById(`avail-row-${dow}`).classList.remove('unavailable');
+    });
+  }
+  // 'clear' leaves everything unchecked
+}
+
+function readAvailability() {
+  // Returns null if filter disabled, else {dow: null | {from, to}} for enabled days
+  if (!document.getElementById('avail-enable').checked) return null;
+  const result = {};
+  let anyDay = false;
+  DAYS.forEach(({dow}) => {
+    if (!document.getElementById(`avail-day-${dow}`).checked) return;
+    anyDay = true;
+    const allDay = document.getElementById(`avail-allday-${dow}`).checked;
+    result[dow] = allDay ? null : {
+      from: document.getElementById(`avail-from-${dow}`).value || '00:00',
+      to:   document.getElementById(`avail-to-${dow}`).value   || '23:59',
+    };
+  });
+  return anyDay ? result : null;
+}
+
 
 function setAllCats(state) {
   document.querySelectorAll('.cat-cb').forEach(cb => {
@@ -603,9 +729,8 @@ async function startRun() {
   fd.append('date_to',          dateTo);
 
   // Availability
-  if (document.getElementById('avail-enable').checked) {
-    fd.append('weekday_after', document.getElementById('weekday-after').value);
-  }
+  const avail = readAvailability();
+  if (avail) fd.append('availability', JSON.stringify(avail));
 
   // Categories (only send if filter is enabled and not all selected)
   if (document.getElementById('cat-enable').checked) {
@@ -798,7 +923,13 @@ function savePrefs() {
     mode:       currentMode,
     skipAtt:    document.getElementById('skip-att').checked,
     availOn:    document.getElementById('avail-enable').checked,
-    availTime:  document.getElementById('weekday-after').value,
+    availDays:  DAYS.map(({dow}) => ({
+      dow,
+      on:     document.getElementById(`avail-day-${dow}`).checked,
+      allDay: document.getElementById(`avail-allday-${dow}`).checked,
+      from:   document.getElementById(`avail-from-${dow}`).value,
+      to:     document.getElementById(`avail-to-${dow}`).value,
+    })),
     catOn:      document.getElementById('cat-enable').checked,
     cats:       [...document.querySelectorAll('.cat-cb')].map(cb => ({v:cb.value, c:cb.checked})),
     priceOn:    document.getElementById('price-enable').checked,
@@ -824,7 +955,16 @@ function loadPrefs() {
   if (prefs.availOn) {
     document.getElementById('avail-enable').checked = true;
     toggleFilter('avail');
-    if (prefs.availTime) document.getElementById('weekday-after').value = prefs.availTime;
+  }
+  if (prefs.availDays) {
+    prefs.availDays.forEach(({dow, on, allDay, from, to}) => {
+      document.getElementById(`avail-day-${dow}`).checked    = on;
+      document.getElementById(`avail-allday-${dow}`).checked = allDay;
+      document.getElementById(`avail-from-${dow}`).value     = from || '17:00';
+      document.getElementById(`avail-to-${dow}`).value       = to   || '23:00';
+      document.getElementById(`avail-row-${dow}`).classList.toggle('unavailable', !on);
+      document.getElementById(`avail-times-${dow}`).style.display = (!allDay && on) ? 'flex' : 'none';
+    });
   }
   // Categories
   if (prefs.catOn && prefs.cats) {
@@ -854,6 +994,7 @@ function loadPrefs() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  buildAvailGrid();
   loadPrefs();
   document.querySelectorAll('.chip').forEach(chip => {
     chip.addEventListener('click', () => {

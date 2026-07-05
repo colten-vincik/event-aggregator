@@ -31,7 +31,7 @@ def run(cities: list[str],
         progress_cb=None,
         date_from: str = "",
         date_to: str = "",
-        weekday_after: int | None = None,
+        availability: dict | None = None,
         categories: list | None = None,
         free_only: bool = False,
         max_price: float | None = None,
@@ -102,7 +102,7 @@ def run(cities: list[str],
         raw_count   = len(all_events)
         all_events  = _agg.dedup(all_events, filter_articles=True, validate_events=True,
                                  date_from=date_from, date_to=date_to,
-                                 weekday_after=weekday_after,
+                                 availability=availability,
                                  categories=categories, free_only=free_only,
                                  max_price=max_price, boroughs=boroughs)
         all_atts    = _agg.dedup(all_attractions)

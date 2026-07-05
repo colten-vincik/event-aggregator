@@ -13,7 +13,7 @@ POST /plan                    → generate evening itinerary via Claude API (JSO
 GET  /health                  → uptime check for Railway / Render
 """
 
-import os, uuid, time, queue, threading
+import os, uuid, time, queue, threading, json
 from pathlib import Path
 from flask import (Flask, render_template, request, jsonify,
                    Response, send_file, abort)
@@ -86,15 +86,25 @@ def start_run():
     date_from        = request.form.get("date_from", "").strip()
     date_to          = request.form.get("date_to", "").strip()
 
-    # weekday_after: "HH:MM" string → int minutes, or None if not set
-    weekday_after = None
-    wa_raw = request.form.get("weekday_after", "").strip()
-    if wa_raw:
+    # availability: JSON string → {dow_int: None | [start_min, end_min]}
+    # e.g. {"1": null, "4": [1020, 1380], "5": null, "6": null}
+    availability = None
+    avail_raw = request.form.get("availability", "").strip()
+    if avail_raw:
         try:
-            h, m = wa_raw.split(":")
-            weekday_after = int(h) * 60 + int(m)
+            raw = json.loads(avail_raw)
+            availability = {}
+            for day_str, val in raw.items():
+                dow = int(day_str)
+                if val is None:
+                    availability[dow] = None          # all day
+                else:
+                    def _hm(s):
+                        h, m = s.split(":")
+                        return int(h) * 60 + int(m)
+                    availability[dow] = (_hm(val["from"]), _hm(val["to"]))
         except Exception:
-            pass
+            availability = None
 
     # categories: comma-separated list, or None if not set
     cats_raw = request.form.get("categories", "").strip()
@@ -145,7 +155,7 @@ def start_run():
                 progress_cb=cb,
                 date_from=date_from,
                 date_to=date_to,
-                weekday_after=weekday_after,
+                availability=availability,
                 categories=categories,
                 free_only=free_only,
                 max_price=max_price,

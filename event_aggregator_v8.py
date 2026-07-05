@@ -2013,15 +2013,19 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def dedup(lst, filter_articles=False, validate_events=False,
-          date_from="", date_to="", weekday_after=None,
+          date_from="", date_to="", availability=None,
           categories=None, free_only=False, max_price=None,
           boroughs=None):
     """
     All filter params are optional (pass None / False / empty to disable).
 
-    weekday_after : int minutes since midnight (e.g. 1020 = 17*60 = 5 PM).
-      Weekday events with a known start time before this are dropped.
-      Weekend events and events with no listed time always pass.
+    availability  : dict mapping weekday int (0=Mon … 6=Sun) to either:
+        None               → that day is fully available (all times pass)
+        (start_min, end_min) → only events whose known time falls within
+                               [start_min, end_min] (minutes since midnight) pass
+      Days absent from the dict are considered unavailable — events on those
+      days are dropped.  Events with an unparseable date or no listed time
+      always pass (benefit of the doubt).
 
     categories    : set/list of category strings to keep (e.g. {"Music","Film"}).
       None means all categories pass.
@@ -2052,14 +2056,18 @@ def dedup(lst, filter_articles=False, validate_events=False,
         if date_from and d_end   and d_end   < date_from: continue
         if date_to   and d_start and d_start > date_to:   continue
 
-        # ── Weekday availability ──────────────────────────────────────────────
-        if weekday_after is not None and d_start:
+        # ── Availability ──────────────────────────────────────────────────────
+        if availability is not None and d_start:
             try:
                 dow = datetime.strptime(d_start, "%Y-%m-%d").weekday()  # 0=Mon, 6=Sun
-                if dow < 5:
+                if dow not in availability:
+                    continue                          # day not available at all
+                window = availability[dow]
+                if window is not None:               # has a specific time window
                     t = parse_time_to_minutes(x.get("Time") or "")
-                    if t is not None and t < weekday_after:
-                        continue
+                    if t is not None:                # known time — check window
+                        if t < window[0] or t > window[1]:
+                            continue
             except Exception:
                 pass
 
