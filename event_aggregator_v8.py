@@ -1339,7 +1339,7 @@ def fetch_socrata_permits(location, cfg, tag=""):
 #  EVENT SOURCES — NYC-SPECIFIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_nyc_parks(max_pages=10, tag=""):
+def fetch_nyc_parks(max_pages=20, tag=""):
     """NYC Parks event-list — free city-run events including Movies Under the Stars,
     summer concerts, pool programs, fitness classes, and theater in the parks."""
     tprint(f"  [{tag}] → NYC Parks events…")
@@ -1399,6 +1399,110 @@ def fetch_nyc_parks(max_pages=10, tag=""):
 
     tprint(f"  [{tag}] ✓ NYC Parks → {len(all_events)}")
     RUNLOG.source("NYC Parks", "New York, NY", len(all_events))
+    return all_events
+
+
+def fetch_playbill(tag=""):
+    """Playbill.com — Broadway and Off-Broadway shows currently running in NYC."""
+    tprint(f"  [{tag}] → Playbill (Broadway / Off-Broadway)…")
+    all_events, seen = [], set()
+    today = _TODAY_STR
+
+    for region, label in [("broadway", "Broadway"), ("off-broadway", "Off-Broadway")]:
+        url = f"https://playbill.com/shows?region={region}"
+        r   = get(url, min_gap=1.5, timeout=30, hdrs={"Referer": "https://playbill.com/"})
+        if not r: continue
+        soup = BeautifulSoup(r.text, "lxml")
+
+        for card in soup.select("article"):
+            # Title from data-title attribute or first heading
+            title = card.get("data-title", "").title()
+            if not title:
+                h = card.find(["h2","h3","h4","strong"]) or card
+                title = h.get_text(strip=True).replace("Trending","").strip()
+            if not title or len(title) < 3: continue
+            key = title.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            # Theater name: find text containing "Theatre", "Theater", or "Center"
+            texts = [t.strip() for t in card.get_text("\n").split("\n") if t.strip()]
+            skip  = {title, "Trending", "View Details", "Buy Tickets"}
+            venue = next((t for t in texts
+                          if t not in skip and
+                          any(w in t for w in ("Theatre", "Theater", "Center"))), "")
+
+            # Prefer the ticket-seller URL; fallback to playbill production page
+            links = card.find_all("a", href=True)
+            ticket_url = next((a["href"] for a in links if a["href"].startswith("http")),
+                              "https://playbill.com" + links[0]["href"] if links else "")
+
+            all_events.append(ev(title, "Arts & Theatre", today, "", venue, "",
+                                 "New York, NY", "Varies", ticket_url,
+                                 f"Playbill ({label})", trusted=True))
+
+    tprint(f"  [{tag}] ✓ Playbill → {len(all_events)}")
+    RUNLOG.source("Playbill", "New York, NY", len(all_events))
+    return all_events
+
+
+def fetch_met_events(tag=""):
+    """The Met Museum events calendar — exhibitions, lectures, concerts, tours."""
+    tprint(f"  [{tag}] → The Met Museum events…")
+    r = get("https://www.metmuseum.org/events/calendar",
+            min_gap=1.3, hdrs={"Referer": "https://www.metmuseum.org/"})
+    if not r: return []
+
+    soup = BeautifulSoup(r.text, "lxml")
+    all_events, seen = [], set()
+    current_date = ""
+
+    for el in soup.find_all(["h3","h4","div"], class_=True):
+        tag_name = el.name
+        classes  = " ".join(el.get("class", []))
+
+        # h3 elements are date headers: "Saturday, July 4"
+        if tag_name == "h3":
+            raw = el.get_text(strip=True)
+            # Parse "Saturday, July 4" → YYYY-MM-DD
+            try:
+                from email.utils import parsedate
+                import calendar
+                # Add current year and parse
+                dt = datetime.strptime(f"{raw} {datetime.today().year}", "%A, %B %d %Y")
+                # If parsed date is in the past, bump to next year
+                if dt.strftime("%Y-%m-%d") < _TODAY_STR:
+                    dt = dt.replace(year=datetime.today().year + 1)
+                current_date = dt.strftime("%Y-%m-%d")
+            except Exception:
+                current_date = ""
+            continue
+
+        # h4 elements are event titles
+        if tag_name == "h4" and current_date:
+            title = el.get_text(strip=True)
+            if not title or len(title) < 3: continue
+            key = title.lower()[:60]
+            if key in seen: continue
+            seen.add(key)
+
+            # Find the nearest ancestor card div that has a link
+            parent = el.find_parent("div")
+            link_el = parent.find("a", href=True) if parent else None
+            url = link_el["href"] if link_el else "https://www.metmuseum.org/events/calendar"
+
+            # Time: look for text matching HH:MM pattern in sibling/parent
+            time_str = ""
+            if parent:
+                time_m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", parent.get_text(), re.I)
+                time_str = time_m.group(1) if time_m else ""
+
+            all_events.append(ev(title, classify(title), current_date, time_str,
+                                 "The Metropolitan Museum of Art", "1000 Fifth Ave",
+                                 "New York, NY", "", url, "The Met", trusted=True))
+
+    tprint(f"  [{tag}] ✓ The Met → {len(all_events)}")
+    RUNLOG.source("The Met", "New York, NY", len(all_events))
     return all_events
 
 
@@ -1795,6 +1899,8 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
             partial(fetch_prospect_park,  5,        tag=tag),
             partial(fetch_skint,          40,       tag=tag),
             partial(fetch_nyc_parks,      20,       tag=tag),
+            partial(fetch_playbill,               tag=tag),
+            partial(fetch_met_events,             tag=tag),
         ]
     if cfg:
         event_tasks += [
