@@ -75,6 +75,8 @@ def start_run():
     mode             = request.form.get("mode", "single")
     value            = request.form.get("value", "").strip()
     skip_attractions = request.form.get("skip_attractions") == "1"
+    date_from        = request.form.get("date_from", "").strip()
+    date_to          = request.form.get("date_to", "").strip()
 
     if not value:
         return jsonify({"error": "No city / region selected."}), 400
@@ -102,6 +104,8 @@ def start_run():
                 skip_attractions=skip_attractions,
                 output_dir=str(OUTPUT_DIR),
                 progress_cb=cb,
+                date_from=date_from,
+                date_to=date_to,
             )
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "done"

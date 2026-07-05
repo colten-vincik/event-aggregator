@@ -1008,7 +1008,8 @@ def fetch_yelp_events(location, cfg, max_pages=2, tag=""):
 import os as _os
 _TM_KEY = _os.environ.get("TICKETMASTER_API_KEY", "")
 
-def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
+def fetch_ticketmaster(location, cfg, max_pages=5, tag="",
+                       date_from="", date_to=""):
     """Ticketmaster Discovery API v2 — free, 5 000 calls/day."""
     city_key = _city_key(location)
     if not city_key: return []
@@ -1019,14 +1020,16 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag=""):
     base = "https://app.ticketmaster.com/discovery/v2/events.json"
     for page in range(0, max_pages):
         params = {
-            "apikey":  _TM_KEY,
-            "city":    city_name,
-            "stateCode": state,
+            "apikey":      _TM_KEY,
+            "city":        city_name,
+            "stateCode":   state,
             "countryCode": "US",
-            "size":    50,
-            "page":    page,
-            "sort":    "date,asc",
+            "size":        50,
+            "page":        page,
+            "sort":        "date,asc",
         }
+        if date_from: params["startDateTime"] = f"{date_from}T00:00:00Z"
+        if date_to:   params["endDateTime"]   = f"{date_to}T23:59:59Z"
         try:
             r = SESSION.get(base, params=params, timeout=15)
             r.raise_for_status()
@@ -1201,7 +1204,7 @@ def _fetch_eventbrite_api_disabled(location, cfg, max_pages=5, tag=""):
 
 _NPS_KEY = _os.environ.get("NPS_API_KEY", "")
 
-def fetch_nps(location, cfg, tag=""):
+def fetch_nps(location, cfg, tag="", date_from="", date_to=""):
     """NPS Events API — free, covers all national parks by state."""
     state = cfg.get("state", "")
     if not state or not _NPS_KEY: return []
@@ -1209,13 +1212,17 @@ def fetch_nps(location, cfg, tag=""):
     all_events, seen = [], set()
     start = 0
     while True:
+        params = {
+            "api_key":   _NPS_KEY,
+            "stateCode": state,
+            "limit":     50,
+            "start":     start,
+        }
+        if date_from: params["dateStart"] = date_from
+        if date_to:   params["dateEnd"]   = date_to
         try:
-            r = SESSION.get("https://developer.nps.gov/api/v1/events", params={
-                "api_key":   _NPS_KEY,
-                "stateCode": state,
-                "limit":     50,
-                "start":     start,
-            }, timeout=15)
+            r = SESSION.get("https://developer.nps.gov/api/v1/events",
+                            params=params, timeout=15)
             r.raise_for_status()
             data = r.json()
         except Exception as e:
@@ -1614,10 +1621,12 @@ def fetch_nyc_farmers_markets(limit=200, tag=""):
 #  PARALLEL CITY FETCHER
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_city(location, skip_attractions=False, source_workers=6):
+def fetch_city(location, skip_attractions=False, source_workers=6,
+               date_from="", date_to=""):
     """
     Fetch all events and attractions for one city.
     Sources run concurrently (different domains → no rate conflicts).
+    date_from / date_to: ISO date strings (YYYY-MM-DD) for optional range filter.
     Returns (events, attractions).
     """
     city_key = _city_key(location)
@@ -1627,6 +1636,8 @@ def fetch_city(location, skip_attractions=False, source_workers=6):
 
     tprint(f"\n{'─'*60}")
     tprint(f"  📍  {location}")
+    if date_from or date_to:
+        tprint(f"  📅  {date_from or 'any'} → {date_to or 'any'}")
     tprint(f"{'─'*60}")
 
     # ── Build task list ───────────────────────────────────────────────────────
@@ -1647,8 +1658,10 @@ def fetch_city(location, skip_attractions=False, source_workers=6):
             partial(fetch_songkick,       location, cfg, tag=tag),
             partial(fetch_dostuff,        location, cfg, tag=tag),
             partial(fetch_yelp_events,    location, cfg, tag=tag),
-            partial(fetch_ticketmaster,   location, cfg, tag=tag),
-            partial(fetch_nps,            location, cfg, tag=tag),
+            partial(fetch_ticketmaster,   location, cfg,
+                    date_from=date_from, date_to=date_to, tag=tag),
+            partial(fetch_nps,            location, cfg,
+                    date_from=date_from, date_to=date_to, tag=tag),
             partial(fetch_socrata_permits,location, cfg, tag=tag),
             # Bandsintown disabled — returns 403 (actively blocks scrapers)
         ]
@@ -1703,7 +1716,8 @@ def fetch_city(location, skip_attractions=False, source_workers=6):
 #  DEDUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def dedup(lst, filter_articles=False, validate_events=False):
+def dedup(lst, filter_articles=False, validate_events=False,
+          date_from="", date_to=""):
     seen, out = set(), []
     for x in lst:
         name = (x.get("Name") or "").strip()
@@ -1711,6 +1725,9 @@ def dedup(lst, filter_articles=False, validate_events=False):
         if not k or k in seen: continue
         if filter_articles and _is_list_article(name): continue
         if validate_events and not _is_valid_event(x): continue
+        d = x.get("Date") or ""
+        if date_from and d and d < date_from: continue
+        if date_to   and d and d > date_to:   continue
         seen.add(k); out.append(x)
     return out
 

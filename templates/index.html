@@ -164,7 +164,19 @@
              placeholder="Boston, MA; Chicago, IL; Miami, FL">
     </div>
 
-    <div class="checkbox-row">
+    <!-- Date range -->
+    <div style="display:flex; gap:16px; margin-top:18px;">
+      <div style="flex:1;">
+        <label for="date-from">Start Date <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="date" id="date-from">
+      </div>
+      <div style="flex:1;">
+        <label for="date-to">End Date <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="date" id="date-to">
+      </div>
+    </div>
+
+    <div class="checkbox-row" style="margin-top:14px;">
       <input type="checkbox" id="skip-att">
       <label for="skip-att">Skip landmarks / attractions (faster)</label>
     </div>
@@ -247,11 +259,20 @@ async function startRun() {
   pbar.style.width = '5%';
   plabel.textContent = 'Starting scraper…';
 
+  // Validate date range if both provided
+  const dateFrom = document.getElementById('date-from').value;
+  const dateTo   = document.getElementById('date-to').value;
+  if (dateFrom && dateTo && dateTo < dateFrom) {
+    alert('End date must be on or after start date.'); return;
+  }
+
   // Post to /run
   const fd = new FormData();
   fd.append('mode',             currentMode);
   fd.append('value',            value);
   fd.append('skip_attractions', skipAtt);
+  fd.append('date_from',        dateFrom);
+  fd.append('date_to',          dateTo);
 
   let jobId;
   try {

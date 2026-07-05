@@ -28,7 +28,9 @@ def run(cities: list[str],
         label: str,
         skip_attractions: bool = False,
         output_dir: str = "output",
-        progress_cb=None) -> dict:
+        progress_cb=None,
+        date_from: str = "",
+        date_to: str = "") -> dict:
     """
     Run the aggregator for the given list of city strings.
 
@@ -74,7 +76,9 @@ def run(cities: list[str],
         def run_city(city_loc):
             evts, atts = _agg.fetch_city(city_loc,
                                           skip_attractions=skip_attractions,
-                                          source_workers=src_workers)
+                                          source_workers=src_workers,
+                                          date_from=date_from,
+                                          date_to=date_to)
             with city_lock:
                 all_events.extend(evts)
                 all_attractions.extend(atts)
@@ -91,7 +95,8 @@ def run(cities: list[str],
                     patched_tprint(f"\n  ⚠  {futures[future]} failed: {e}")
 
         raw_count   = len(all_events)
-        all_events  = _agg.dedup(all_events, filter_articles=True, validate_events=True)
+        all_events  = _agg.dedup(all_events, filter_articles=True, validate_events=True,
+                                 date_from=date_from, date_to=date_to)
         all_atts    = _agg.dedup(all_attractions)
         dropped     = raw_count - len(all_events)
         patched_tprint(f"\n  🔍  {raw_count} raw → {len(all_events)} events kept "
