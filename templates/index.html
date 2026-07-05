@@ -360,8 +360,8 @@
               ("🎓","Education"),("🤝","Community"),("🛍️","Shopping"),
               ("🎪","Amusement"),("✨","Entertainment")
             ] %}
-            <label class="chip selected">
-              <input type="checkbox" class="cat-cb" value="{{ cat[1] }}" checked>
+            <label class="chip">
+              <input type="checkbox" class="cat-cb" value="{{ cat[1] }}">
               {{ cat[0] }} {{ cat[1] }}
             </label>
             {% endfor %}
@@ -404,8 +404,8 @@
           <div class="filter-hint">Events without a detectable borough are always kept. Most useful for NYC Parks events which tag a specific borough.</div>
           <div class="boro-grid">
             {% for boro in ["Manhattan","Brooklyn","Queens","Bronx","Staten Island"] %}
-            <label class="chip selected">
-              <input type="checkbox" class="boro-cb" value="{{ boro.lower() }}" checked>
+            <label class="chip">
+              <input type="checkbox" class="boro-cb" value="{{ boro.lower() }}">
               {{ boro }}
             </label>
             {% endfor %}

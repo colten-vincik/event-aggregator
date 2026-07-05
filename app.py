@@ -18,6 +18,12 @@ from pathlib import Path
 from flask import (Flask, render_template, request, jsonify,
                    Response, send_file, abort)
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import scraper
 
 app = Flask(__name__)
