@@ -162,12 +162,14 @@ def start_run():
                 boroughs=boroughs,
             )
             result["picks"] = [_clean_pick(p) for p in result.get("picks", [])]
-            # Store events separately — keeps /status payload small
-            events_data = result.pop("events_data", [])
+            # Store large lists separately — keeps /status payload small
+            events_data      = result.pop("events_data", [])
+            attractions_data = result.pop("attractions_data", [])
             with _JOBS_LOCK:
-                _JOBS[job_id]["status"]      = "done"
-                _JOBS[job_id]["result"]      = result
-                _JOBS[job_id]["events_data"] = events_data
+                _JOBS[job_id]["status"]           = "done"
+                _JOBS[job_id]["result"]           = result
+                _JOBS[job_id]["events_data"]      = events_data
+                _JOBS[job_id]["attractions_data"] = attractions_data
         except Exception as e:
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "error"
@@ -239,12 +241,20 @@ def download(job_id, kind):
 
 @app.route("/events/<job_id>")
 def get_events(job_id):
-    """Return the full sorted event list for the in-browser table."""
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
     if not job or job["status"] != "done":
         abort(404)
     return jsonify(job.get("events_data", []))
+
+
+@app.route("/attractions/<job_id>")
+def get_attractions(job_id):
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if not job or job["status"] != "done":
+        abort(404)
+    return jsonify(job.get("attractions_data", []))
 
 
 @app.route("/plan", methods=["POST"])

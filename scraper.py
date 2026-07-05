@@ -152,7 +152,8 @@ def run(cities: list[str],
             "attractions": len(all_atts),
             "elapsed":     round(elapsed, 1),
             "picks":       picks,
-            "events_data": [_clean(e) for e in all_events],
+            "events_data":      [_clean(e) for e in all_events],
+            "attractions_data": [_clean(a) for a in all_atts],
             "by_category": dict(
                 sorted(
                     __import__("collections").Counter(

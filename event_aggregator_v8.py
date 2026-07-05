@@ -348,28 +348,104 @@ def _bit_slug(city_key, cfg):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def classify(text):
+def classify(text, source_hint=""):
+    """
+    Classify an event by its text. source_hint lets callers force a category
+    when the title alone is too generic (e.g. broadway show names).
+    """
     t = (text or "").lower()
-    if any(w in t for w in ["concert","music","band","dj","jazz","rock","hip hop","singer","tour","symphony","orchestra","opera","festival","gig","bluegrass","electronic","choir","r&b","reggae","punk","indie","album","live music","nightlife","party","club","lounge","rave","edm","country music","folk music","open mic"]):
-        return "Music"
-    if any(w in t for w in ["sport","game","match","nba","nfl","mlb","nhl","soccer","tennis","golf","marathon","race","baseball","basketball","football","hockey","esport","wrestling","mma","athletic","pickleball","lacrosse","volleyball","swim","yoga","fitness","run","cycling","triathlon","5k","10k"]):
-        return "Sports"
-    if any(w in t for w in ["museum","exhibit","gallery","art show","theatre","theater","ballet","dance","comedy","stand-up","broadway","performance","circus","puppet","magic","improv","opera","cabaret","burlesque","sketch","drag"]):
+    sh = (source_hint or "").lower()
+    # Strip "@ Venue Name" suffix before keyword matching so a venue containing
+    # "theater" or "center" doesn't override classification of the act itself.
+    t_act = re.split(r"\s+@\s+", t)[0].strip()
+
+    # Source-based overrides — when we know the feed is always a specific type
+    if any(x in sh for x in ("playbill", "broadway", "off-broadway")):
         return "Arts & Theatre"
-    if any(w in t for w in ["food","drink","wine","beer","brunch","tasting","chef","culinary","cocktail","dining","grill","whiskey","spirits","gastro","restaurant","greenmarket","farmers market","food festival","bbq","taco","pizza","coffee","brewery","winery","mixology","distillery"]):
-        return "Food & Drink"
-    if any(w in t for w in ["community","fair","parade","volunteer","charity","fundraiser","seminar","networking","conference","health","wellness","meditation","block party","street fair","flea","craft","expo","summit","meetup","social","mixer"]):
-        return "Community"
-    if any(w in t for w in ["park","garden","nature","hike","trail","zoo","aquarium","botanical","outdoor","beach","lake","forest","reserve","greenway","conservancy","wildlife","kayak","canoe","paddl"]):
-        return "Nature & Parks"
-    if any(w in t for w in ["theme park","amusement","roller coaster","arcade","carnival","carousel","ferris wheel"]):
-        return "Amusement"
-    if any(w in t for w in ["film","cinema","movie","screening","documentary","short film"]):
+    if any(x in sh for x in ("the met", "metropolitan museum", "moma", "whitney",
+                               "guggenheim", "brooklyn museum", "museum")):
+        return "Arts & Theatre"
+
+    if any(w in t_act for w in [
+        "concert","music","band","dj","jazz","rock","hip hop","hip-hop","rapper","singer",
+        "tour","symphony","orchestra","opera","festival","gig","bluegrass","electronic",
+        "choir","r&b","reggae","punk","indie","album","live music","nightlife","club",
+        "lounge","rave","edm","country music","folk music","open mic","tribute band",
+        "listening party","release party","soundscape",
+    ]):
+        return "Music"
+
+    if any(w in t for w in [
+        "sport","game","match","nba","nfl","mlb","nhl","mls","soccer","tennis","golf",
+        "marathon","race","baseball","basketball","football","hockey","esport","wrestling",
+        "mma","athletic","pickleball","lacrosse","volleyball","swim","yoga","fitness",
+        "cycling","triathlon","5k","10k","mud run","spartan","crossfit","rowing","archery",
+        "boxing","kickboxing","judo","karate","taekwondo","fencing","equestrian",
+    ]):
+        return "Sports"
+
+    if any(w in t for w in [
+        "film","cinema","movie","screening","documentary","short film","film festival",
+        "drive-in","drive in movie","outdoor movie","movies under","film series",
+    ]):
         return "Film"
-    if any(w in t for w in ["lecture","learn","education","school","university","training","class","workshop","tutorial","course"]):
+
+    if any(w in t for w in [
+        "food","drink","wine","beer","brunch","tasting","chef","culinary","cocktail",
+        "dining","grill","whiskey","spirits","gastro","restaurant","greenmarket",
+        "farmers market","food festival","bbq","taco","pizza","coffee","brewery",
+        "winery","mixology","distillery","happy hour","pop-up dinner","supper club",
+        "sake","mezcal","cider","craft beer","food tour","chocolate","cheese",
+    ]):
+        return "Food & Drink"
+
+    if any(w in t for w in [
+        "park","garden","nature","hike","trail","zoo","aquarium","botanical","outdoor",
+        "beach","lake","forest","reserve","greenway","conservancy","wildlife","kayak",
+        "canoe","paddl","birdwatch","stargazing","camping","picnic",
+    ]):
+        return "Nature & Parks"
+
+    # Education before Arts & Theatre — "class/workshop/lecture" are more specific
+    # and should not be overridden by a venue name containing "theater"
+    if any(w in t for w in [
+        "lecture","talk","panel","education","school","university","training",
+        "class","classes","workshop","tutorial","course","seminar","conference",
+        "summit","symposium","webinar","hackathon","coding","certification",
+        "ted talk","esol","esl","english class","language class","literacy",
+        "tutoring","tutored","after school","continuing education",
+    ]):
         return "Education"
-    if any(w in t for w in ["shop","mall","flea market","boutique","bazaar","retail","store","market","pop-up"]):
+
+    if any(w in t for w in [
+        "museum","exhibit","exhibition","gallery","art show","art fair","theatre","theater",
+        "ballet","dance","comedy","stand-up","standup","open mic comedy","broadway",
+        "off-broadway","musical","cabaret","burlesque","circus","puppet","magic",
+        "improv","opera","performance","showcase","playhouse","repertory","recital",
+        "one-man show","one-woman show","drag show","sketch comedy",
+        "spoken word","poetry slam","stand up","comedy night","open stage",
+    ]):
+        return "Arts & Theatre"
+
+    if any(w in t for w in [
+        "community","fair","parade","volunteer","charity","fundraiser","networking",
+        "health","wellness","meditation","block party","street fair","flea","craft",
+        "expo","meetup","social","mixer","awareness","rally","vigil","town hall",
+    ]):
+        return "Community"
+
+    if any(w in t for w in [
+        "theme park","amusement","roller coaster","arcade","carnival","carousel",
+        "ferris wheel","escape room","mini golf","bowling","axe throwing","laser tag",
+    ]):
+        return "Amusement"
+
+    if any(w in t for w in [
+        "shop","mall","flea market","boutique","bazaar","retail","store","market",
+        "pop-up","trunk show","sample sale","swap meet",
+    ]):
         return "Shopping"
+
     return "Entertainment"
 
 def parse_date(s):
@@ -524,7 +600,7 @@ def _is_valid_event(e: dict) -> bool:
     if not trusted:
         if not url:                 return False
         if _NON_EVENT_URL_RE.search(url): return False
-    if not date:                    return False
+    if not date and not trusted:    return False
     # Use end date when available so multi-day events stay visible until they finish
     relevance_date = date_end if date_end else date
     if re.match(r"^\d{4}-\d{2}-\d{2}$", relevance_date) and relevance_date < _TODAY_STR:
@@ -1449,7 +1525,6 @@ def fetch_playbill(tag=""):
     """Playbill.com — Broadway and Off-Broadway shows currently running in NYC."""
     tprint(f"  [{tag}] → Playbill (Broadway / Off-Broadway)…")
     all_events, seen = [], set()
-    today = _TODAY_STR
 
     for region, label in [("broadway", "Broadway"), ("off-broadway", "Off-Broadway")]:
         url = f"https://playbill.com/shows?region={region}"
@@ -1480,7 +1555,9 @@ def fetch_playbill(tag=""):
             ticket_url = next((a["href"] for a in links if a["href"].startswith("http")),
                               "https://playbill.com" + links[0]["href"] if links else "")
 
-            all_events.append(ev(title, "Arts & Theatre", today, "", venue, "",
+            # No specific date — Broadway shows run ongoing; leaving blank so
+            # availability day-of-week filter doesn't incorrectly drop them.
+            all_events.append(ev(title, "Arts & Theatre", "", "", venue, "",
                                  "New York, NY", "Varies", ticket_url,
                                  f"Playbill ({label})", trusted=True))
 
@@ -1540,7 +1617,7 @@ def fetch_met_events(tag=""):
                 time_m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", parent.get_text(), re.I)
                 time_str = time_m.group(1) if time_m else ""
 
-            all_events.append(ev(title, classify(title), current_date, time_str,
+            all_events.append(ev(title, classify(title, "museum"), current_date, time_str,
                                  "The Metropolitan Museum of Art", "1000 Fifth Ave",
                                  "New York, NY", "", url, "The Met", trusted=True))
 
@@ -1591,7 +1668,7 @@ def fetch_skint(max_items=40, tag=""):
 
         all_events.append(ev(title, classify(title), pub_date, "",
                              "", "", "New York, NY", "Free",
-                             ext_url, "The Skint"))
+                             ext_url, "The Skint", trusted=True))
 
     tprint(f"  [{tag}] ✓ The Skint → {len(all_events)}")
     RUNLOG.source("The Skint", "New York, NY", len(all_events))
@@ -1762,8 +1839,7 @@ WIKIDATA_CAT = {
 
 def fetch_wikidata(lat, lon, radius_km=15, city_label="", tag=""):
     if lat is None: return []
-    tprint(f"  [{tag}] → Wikidata (5s pause)…")
-    time.sleep(5)
+    tprint(f"  [{tag}] → Wikidata…")
     sparql = f"""
 SELECT DISTINCT ?place ?placeLabel ?typeLabel ?website ?article ?coord ?placeDescription WHERE {{
   SERVICE wikibase:around {{
@@ -1784,15 +1860,28 @@ SELECT DISTINCT ?place ?placeLabel ?typeLabel ?website ?article ?coord ?placeDes
 }}
 LIMIT 200
 """
-    try:
-        resp = SESSION.get("https://query.wikidata.org/sparql",
-            params={"query":sparql,"format":"json"},
-            headers={"Accept":"application/sparql-results+json","User-Agent":"EventAggregator/8.0"},
-            timeout=30)
-        resp.raise_for_status()
-        bindings = resp.json()["results"]["bindings"]
-    except Exception as e:
-        tprint(f"  ⚠  Wikidata: {e}"); return []
+    headers = {"Accept": "application/sparql-results+json",
+               "User-Agent": "EventAggregator/8.0 (coltenvincik@gmail.com)"}
+    bindings = []
+    for attempt in range(3):
+        try:
+            wait = 5 * (2 ** attempt)   # 5s, 10s, 20s
+            time.sleep(wait)
+            resp = SESSION.get("https://query.wikidata.org/sparql",
+                params={"query": sparql, "format": "json"},
+                headers=headers, timeout=40)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 30))
+                tprint(f"  [{tag}] ⚠  Wikidata 429 — waiting {retry_after}s…")
+                time.sleep(retry_after)
+                continue
+            resp.raise_for_status()
+            bindings = resp.json()["results"]["bindings"]
+            break
+        except Exception as e:
+            tprint(f"  [{tag}] ⚠  Wikidata attempt {attempt+1}: {e}")
+            if attempt == 2:
+                return []
     places, seen = [], set()
     for b in bindings:
         name  = b.get("placeLabel",{}).get("value","").strip()

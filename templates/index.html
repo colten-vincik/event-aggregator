@@ -494,34 +494,72 @@
 
   <!-- ── Event Browser ─────────────────────────────────────────────────── -->
   <div class="card" id="browser-panel">
-    <h2>📋 Browse Events</h2>
+
+    <!-- Tab switcher -->
+    <div class="mode-tabs" style="margin-bottom:16px;">
+      <button class="mode-tab active" id="tab-events" onclick="switchTab('events')">
+        📅 Events <span id="tab-ev-count" style="opacity:.7;font-weight:400"></span>
+      </button>
+      <button class="mode-tab" id="tab-attractions" onclick="switchTab('attractions')">
+        📍 Things To Do <span id="tab-att-count" style="opacity:.7;font-weight:400"></span>
+      </button>
+    </div>
+
+    <!-- Shared toolbar -->
     <div class="browser-toolbar">
       <input type="text" id="ev-search" placeholder="Search name, venue, category…" oninput="applyFilter()">
       <select id="ev-cat-filter" onchange="applyFilter()">
         <option value="">All categories</option>
         <option>Music</option><option>Arts &amp; Theatre</option><option>Film</option>
         <option>Sports</option><option>Nature &amp; Parks</option><option>Food &amp; Drink</option>
-        <option>Education</option><option>Community</option><option>Entertainment</option>
+        <option>Education</option><option>Community</option><option>Amusement</option>
+        <option>Shopping</option><option>Entertainment</option>
       </select>
       <span class="ev-count" id="ev-count-label"></span>
     </div>
-    <div class="table-wrap">
-      <table class="ev-table">
-        <thead>
-          <tr>
-            <th style="width:32px;cursor:default;"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
-            <th onclick="sortBy('Name')">Event</th>
-            <th onclick="sortBy('Category')">Category</th>
-            <th onclick="sortBy('Date')">Date</th>
-            <th onclick="sortBy('Time')">Time</th>
-            <th onclick="sortBy('Venue')">Venue</th>
-            <th onclick="sortBy('Price')">Price</th>
-          </tr>
-        </thead>
-        <tbody id="ev-tbody"></tbody>
-      </table>
+
+    <!-- Events table -->
+    <div id="view-events">
+      <div class="table-wrap">
+        <table class="ev-table">
+          <thead>
+            <tr>
+              <th style="width:32px;cursor:default;"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
+              <th onclick="sortBy('Name')">Event</th>
+              <th onclick="sortBy('Category')">Category</th>
+              <th onclick="sortBy('Date')">Date</th>
+              <th onclick="sortBy('Time')">Time</th>
+              <th onclick="sortBy('Venue')">Venue</th>
+              <th onclick="sortBy('Price')">Price</th>
+            </tr>
+          </thead>
+          <tbody id="ev-tbody"></tbody>
+        </table>
+      </div>
+      <button id="show-more-btn" style="display:none" onclick="showMore()"></button>
     </div>
-    <button id="show-more-btn" style="display:none" onclick="showMore()"></button>
+
+    <!-- Attractions table -->
+    <div id="view-attractions" style="display:none">
+      <div class="table-wrap">
+        <table class="ev-table">
+          <thead>
+            <tr>
+              <th style="width:32px;cursor:default;"><input type="checkbox" id="att-select-all" onclick="toggleSelectAllAttr(this)"></th>
+              <th onclick="sortAttBy('Name')">Place / Attraction</th>
+              <th onclick="sortAttBy('Category')">Category</th>
+              <th onclick="sortAttBy('Type')">Type</th>
+              <th onclick="sortAttBy('City')">City</th>
+              <th>Description</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody id="att-tbody"></tbody>
+        </table>
+      </div>
+      <button id="show-more-att-btn" style="display:none" onclick="showMoreAttr()"></button>
+    </div>
+
   </div>
 
   <!-- ── Itinerary ──────────────────────────────────────────────────────── -->
@@ -817,6 +855,7 @@ async function fetchResult(jobId) {
     renderPicks(r.picks || []);
     show('results-panel');
     loadEvents(jobId);
+    loadAttractions(jobId);
   } catch (e) {
     showError('Could not retrieve results: ' + e.message);
   }
@@ -1006,15 +1045,38 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  EVENT BROWSER
+//  BROWSER — shared state
 // ════════════════════════════════════════════════════════════════════════════
-let _jobId         = null;
-let _eventsData    = [];   // full list from /events/<jobId>
-let _filtered      = [];   // after search + category filter
-let _selected      = new Map(); // key → event object
-let _visibleCount  = 75;
-let _sortCol       = 'Date';
-let _sortAsc       = true;
+let _jobId            = null;
+let _currentTab       = 'events';   // 'events' | 'attractions'
+
+// Events
+let _eventsData       = [];
+let _filtered         = [];
+let _selected         = new Map();
+let _visibleCount     = 75;
+let _sortCol          = 'Date';
+let _sortAsc          = true;
+
+// Attractions
+let _attractionsData  = [];
+let _filteredAttr     = [];
+let _selectedAttr     = new Map();
+let _visibleCountAttr = 75;
+let _sortColAttr      = 'Name';
+let _sortAscAttr      = true;
+
+function switchTab(tab) {
+  _currentTab = tab;
+  document.getElementById('tab-events').classList.toggle('active', tab === 'events');
+  document.getElementById('tab-attractions').classList.toggle('active', tab === 'attractions');
+  document.getElementById('view-events').style.display      = tab === 'events'      ? '' : 'none';
+  document.getElementById('view-attractions').style.display = tab === 'attractions' ? '' : 'none';
+  // Reset search & re-filter for the active tab
+  document.getElementById('ev-search').value = '';
+  document.getElementById('ev-cat-filter').value = '';
+  applyFilter();
+}
 let _itineraryText = '';
 
 const CAT_COLORS = {
@@ -1024,82 +1086,102 @@ const CAT_COLORS = {
   'Amusement':'#c05700','Entertainment':'#595959',
 };
 
+// ── Loaders ──────────────────────────────────────────────────────────────────
 async function loadEvents(jobId) {
   _jobId = jobId;
   try {
-    const res  = await fetch('/events/' + jobId);
+    const res   = await fetch('/events/' + jobId);
     _eventsData = await res.json();
+    document.getElementById('tab-ev-count').textContent = `(${_eventsData.length})`;
     applyFilter();
     show('browser-panel');
-    // scroll table into view smoothly
     document.getElementById('browser-panel').scrollIntoView({behavior:'smooth', block:'start'});
-  } catch(e) {
-    console.warn('Could not load event list:', e);
-  }
+  } catch(e) { console.warn('Could not load events:', e); }
 }
 
+async function loadAttractions(jobId) {
+  try {
+    const res       = await fetch('/attractions/' + jobId);
+    _attractionsData = await res.json();
+    document.getElementById('tab-att-count').textContent = `(${_attractionsData.length})`;
+    if (_currentTab === 'attractions') applyFilter();
+  } catch(e) { console.warn('Could not load attractions:', e); }
+}
+
+// ── Shared filter entry-point ─────────────────────────────────────────────────
 function applyFilter() {
-  const q    = (document.getElementById('ev-search').value || '').toLowerCase();
-  const cat  = (document.getElementById('ev-cat-filter').value || '').toLowerCase();
-  _filtered  = _eventsData.filter(e => {
-    if (cat && (e.Category||'').toLowerCase() !== cat) return false;
-    if (q) {
-      const hay = [e.Name, e.Venue, e.Category, e.City, e.Source].join(' ').toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
-  // Stable sort
+  if (_currentTab === 'events')      { _applyEventFilter();      renderTable(); }
+  else                               { _applyAttrFilter();       renderAttrTable(); }
+}
+
+function _filterFn(item, q, cat) {
+  if (cat && (item.Category||'').toLowerCase() !== cat) return false;
+  if (q) {
+    const hay = [item.Name, item.Venue, item.Category, item.City, item.Source,
+                 item.Type, item.Description].join(' ').toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+function _applyEventFilter() {
+  const q   = (document.getElementById('ev-search').value || '').toLowerCase();
+  const cat = (document.getElementById('ev-cat-filter').value || '').toLowerCase();
+  _filtered = _eventsData.filter(e => _filterFn(e, q, cat));
   _filtered.sort((a, b) => {
-    let av = (a[_sortCol] || '').toString().toLowerCase();
-    let bv = (b[_sortCol] || '').toString().toLowerCase();
-    if (av < bv) return _sortAsc ? -1 :  1;
-    if (av > bv) return _sortAsc ?  1 : -1;
-    return 0;
+    const av = (a[_sortCol]||'').toString().toLowerCase();
+    const bv = (b[_sortCol]||'').toString().toLowerCase();
+    return av < bv ? (_sortAsc?-1:1) : av > bv ? (_sortAsc?1:-1) : 0;
   });
   _visibleCount = 75;
-  renderTable();
 }
 
-function sortBy(col) {
-  if (_sortCol === col) { _sortAsc = !_sortAsc; }
-  else { _sortCol = col; _sortAsc = true; }
-  // Update header classes
-  document.querySelectorAll('.ev-table thead th').forEach(th => {
-    th.classList.remove('sorted-asc','sorted-desc');
-    if (th.textContent.trim() === col ||
-        (col === 'Name' && th.textContent.includes('Event'))) {
-      th.classList.add(_sortAsc ? 'sorted-asc' : 'sorted-desc');
-    }
+function _applyAttrFilter() {
+  const q   = (document.getElementById('ev-search').value || '').toLowerCase();
+  const cat = (document.getElementById('ev-cat-filter').value || '').toLowerCase();
+  _filteredAttr = _attractionsData.filter(e => _filterFn(e, q, cat));
+  _filteredAttr.sort((a, b) => {
+    const av = (a[_sortColAttr]||'').toString().toLowerCase();
+    const bv = (b[_sortColAttr]||'').toString().toLowerCase();
+    return av < bv ? (_sortAscAttr?-1:1) : av > bv ? (_sortAscAttr?1:-1) : 0;
   });
+  _visibleCountAttr = 75;
+}
+
+// ── Sort ─────────────────────────────────────────────────────────────────────
+function sortBy(col) {
+  if (_sortCol === col) _sortAsc = !_sortAsc; else { _sortCol = col; _sortAsc = true; }
+  applyFilter();
+}
+function sortAttBy(col) {
+  if (_sortColAttr === col) _sortAscAttr = !_sortAscAttr; else { _sortColAttr = col; _sortAscAttr = true; }
   applyFilter();
 }
 
+// ── Render — Events ───────────────────────────────────────────────────────────
 function renderTable() {
-  const tbody  = document.getElementById('ev-tbody');
-  const slice  = _filtered.slice(0, _visibleCount);
-  const total  = _filtered.length;
+  const tbody = document.getElementById('ev-tbody');
+  const slice = _filtered.slice(0, _visibleCount);
+  const total = _filtered.length;
+
   document.getElementById('ev-count-label').textContent =
-    total === _eventsData.length
-      ? `${total} events`
-      : `${total} of ${_eventsData.length} events`;
+    total === _eventsData.length ? `${total} events` : `${total} of ${_eventsData.length} events`;
 
   tbody.innerHTML = '';
   slice.forEach(e => {
-    const key      = (e.Name||'').toLowerCase().slice(0,60);
-    const sel      = _selected.has(key);
-    const color    = CAT_COLORS[e.Category] || '#595959';
-    const nameCell = e.URL
+    const key   = (e.Name||'').toLowerCase().slice(0,60);
+    const sel   = _selected.has(key);
+    const color = CAT_COLORS[e.Category] || '#595959';
+    const link  = e.URL
       ? `<a href="${esc(e.URL)}" target="_blank" onclick="event.stopPropagation()">${esc(e.Name)}</a>`
       : esc(e.Name);
     const tr = document.createElement('tr');
     tr.dataset.key = key;
     if (sel) tr.classList.add('selected');
     tr.innerHTML = `
-      <td style="text-align:center">
-        <input type="checkbox" ${sel?'checked':''} onclick="event.stopPropagation();toggleRow('${key.replace(/'/g,"\\'")}')">
-      </td>
-      <td class="td-name">${nameCell}</td>
+      <td style="text-align:center"><input type="checkbox" ${sel?'checked':''}
+        onclick="event.stopPropagation();toggleRow('${key.replace(/'/g,"\\'")}')"></td>
+      <td class="td-name">${link}</td>
       <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(e.Category||'')}</span></td>
       <td style="white-space:nowrap">${esc(e.Date||'')}</td>
       <td style="white-space:nowrap">${esc(e.Time||'')}</td>
@@ -1110,30 +1192,20 @@ function renderTable() {
   });
 
   const more = document.getElementById('show-more-btn');
-  if (_visibleCount < total) {
-    more.style.display = 'block';
-    more.textContent   = `Show more (${total - _visibleCount} remaining)`;
-  } else {
-    more.style.display = 'none';
-  }
+  more.style.display = _visibleCount < total ? 'block' : 'none';
+  if (_visibleCount < total) more.textContent = `Show more (${total - _visibleCount} remaining)`;
 
-  // Sync select-all checkbox
-  const allVis = slice.every(e => _selected.has((e.Name||'').toLowerCase().slice(0,60)));
-  document.getElementById('select-all').checked = slice.length > 0 && allVis;
+  const allVis = slice.length > 0 && slice.every(e => _selected.has((e.Name||'').toLowerCase().slice(0,60)));
+  document.getElementById('select-all').checked = allVis;
 }
 
-function showMore() {
-  _visibleCount += 75;
-  renderTable();
-}
+function showMore() { _visibleCount += 75; renderTable(); }
 
 function toggleRow(key) {
   const e = _filtered.find(ev => (ev.Name||'').toLowerCase().slice(0,60) === key);
   if (!e) return;
-  if (_selected.has(key)) { _selected.delete(key); }
-  else                    { _selected.set(key, e); }
-  // Sync checkbox + row highlight in DOM
-  const tr = document.querySelector(`tr[data-key="${CSS.escape(key)}"]`);
+  _selected.has(key) ? _selected.delete(key) : _selected.set(key, e);
+  const tr = document.querySelector(`#view-events tr[data-key="${CSS.escape(key)}"]`);
   if (tr) {
     tr.classList.toggle('selected', _selected.has(key));
     const cb = tr.querySelector('input[type=checkbox]');
@@ -1144,38 +1216,98 @@ function toggleRow(key) {
 
 function toggleSelectAll(master) {
   const slice = _filtered.slice(0, _visibleCount);
-  if (master.checked) {
-    slice.forEach(e => {
-      const k = (e.Name||'').toLowerCase().slice(0,60);
-      _selected.set(k, e);
-    });
-  } else {
-    slice.forEach(e => {
-      const k = (e.Name||'').toLowerCase().slice(0,60);
-      _selected.delete(k);
-    });
+  slice.forEach(e => {
+    const k = (e.Name||'').toLowerCase().slice(0,60);
+    master.checked ? _selected.set(k, e) : _selected.delete(k);
+  });
+  renderTable(); updateSelectionBar();
+}
+
+// ── Render — Attractions ──────────────────────────────────────────────────────
+function renderAttrTable() {
+  const tbody = document.getElementById('att-tbody');
+  const slice = _filteredAttr.slice(0, _visibleCountAttr);
+  const total = _filteredAttr.length;
+
+  document.getElementById('ev-count-label').textContent =
+    total === _attractionsData.length ? `${total} places` : `${total} of ${_attractionsData.length} places`;
+
+  tbody.innerHTML = '';
+  slice.forEach(a => {
+    const key   = (a.Name||'').toLowerCase().slice(0,60);
+    const sel   = _selectedAttr.has(key);
+    const color = CAT_COLORS[a.Category] || '#595959';
+    const link  = a.URL
+      ? `<a href="${esc(a.URL)}" target="_blank" onclick="event.stopPropagation()">${esc(a.Name)}</a>`
+      : esc(a.Name);
+    const desc  = (a.Description||'').slice(0, 80) + ((a.Description||'').length > 80 ? '…' : '');
+    const tr = document.createElement('tr');
+    tr.dataset.key = key;
+    if (sel) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td style="text-align:center"><input type="checkbox" ${sel?'checked':''}
+        onclick="event.stopPropagation();toggleAttrRow('${key.replace(/'/g,"\\'")}')"></td>
+      <td class="td-name">${link}</td>
+      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(a.Category||'')}</span></td>
+      <td style="white-space:nowrap">${esc(a.Type||'')}</td>
+      <td style="white-space:nowrap">${esc(a.City||'')}</td>
+      <td style="color:var(--muted);font-size:11px">${esc(desc)}</td>
+      <td>${a.URL ? `<a href="${esc(a.URL)}" target="_blank" style="font-size:11px;color:var(--accent)">Link</a>` : ''}</td>`;
+    tr.addEventListener('click', () => toggleAttrRow(key));
+    tbody.appendChild(tr);
+  });
+
+  const more = document.getElementById('show-more-att-btn');
+  more.style.display = _visibleCountAttr < total ? 'block' : 'none';
+  if (_visibleCountAttr < total) more.textContent = `Show more (${total - _visibleCountAttr} remaining)`;
+
+  const allVis = slice.length > 0 && slice.every(a => _selectedAttr.has((a.Name||'').toLowerCase().slice(0,60)));
+  document.getElementById('att-select-all').checked = allVis;
+}
+
+function showMoreAttr() { _visibleCountAttr += 75; renderAttrTable(); }
+
+function toggleAttrRow(key) {
+  const a = _filteredAttr.find(x => (x.Name||'').toLowerCase().slice(0,60) === key);
+  if (!a) return;
+  _selectedAttr.has(key) ? _selectedAttr.delete(key) : _selectedAttr.set(key, a);
+  const tr = document.querySelector(`#view-attractions tr[data-key="${CSS.escape(key)}"]`);
+  if (tr) {
+    tr.classList.toggle('selected', _selectedAttr.has(key));
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = _selectedAttr.has(key);
   }
-  renderTable();
   updateSelectionBar();
 }
 
+function toggleSelectAllAttr(master) {
+  const slice = _filteredAttr.slice(0, _visibleCountAttr);
+  slice.forEach(a => {
+    const k = (a.Name||'').toLowerCase().slice(0,60);
+    master.checked ? _selectedAttr.set(k, a) : _selectedAttr.delete(k);
+  });
+  renderAttrTable(); updateSelectionBar();
+}
+
+// ── Selection bar (events + attractions combined) ─────────────────────────────
 function clearSelection() {
-  _selected.clear();
-  renderTable();
-  updateSelectionBar();
+  _selected.clear(); _selectedAttr.clear();
+  renderTable(); renderAttrTable(); updateSelectionBar();
 }
 
 function updateSelectionBar() {
+  const n   = _selected.size + _selectedAttr.size;
   const bar = document.getElementById('sel-bar');
-  const n   = _selected.size;
   if (n === 0) {
     bar.style.display = 'none';
     document.body.style.paddingBottom = '';
   } else {
     bar.style.display = 'flex';
-    document.body.style.paddingBottom = '64px'; // prevent overlap
+    document.body.style.paddingBottom = '64px';
+    const evPart  = _selected.size     ? `${_selected.size} event${_selected.size===1?'':'s'}` : '';
+    const attPart = _selectedAttr.size ? `${_selectedAttr.size} place${_selectedAttr.size===1?'':'s'}` : '';
     document.getElementById('sel-bar-count').textContent =
-      `${n} event${n===1?'':'s'} selected`;
+      [evPart, attPart].filter(Boolean).join(' + ') + ' selected';
   }
 }
 
@@ -1183,8 +1315,11 @@ function updateSelectionBar() {
 //  PLAN MY EVENING
 // ════════════════════════════════════════════════════════════════════════════
 async function planEvening() {
-  if (_selected.size === 0) return;
-  const events = [..._selected.values()];
+  if (_selected.size === 0 && _selectedAttr.size === 0) return;
+  const events = [
+    ..._selected.values(),
+    ...[..._selectedAttr.values()].map(a => ({...a, _isAttraction: true})),
+  ];
 
   // Switch view
   hide('browser-panel');
