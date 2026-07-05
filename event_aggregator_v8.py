@@ -421,6 +421,30 @@ def parse_time_to_minutes(s):
         return h * 60 + mins
     return None
 
+def parse_price_to_number(price_str):
+    """Return lowest numeric price (float), 0.0 for free, None if unknown/unparseable."""
+    if not price_str: return None
+    s = str(price_str).lower().strip()
+    if any(w in s for w in ("free", "no cost", "no charge", "complimentary", "$0", "0.00")):
+        return 0.0
+    # "$10 – $25" → take the first number
+    m = re.search(r"\$(\d+(?:\.\d+)?)", s)
+    if m: return float(m.group(1))
+    m = re.search(r"(\d+(?:\.\d+)?)", s)
+    if m: return float(m.group(1))
+    return None
+
+_NYC_BOROUGHS = {"manhattan", "brooklyn", "queens", "bronx", "staten island"}
+
+def _event_borough(e):
+    """Return lowercase borough name found in City/Address/Venue, or None."""
+    for field in ("City", "Address", "Venue"):
+        text = (e.get(field) or "").lower()
+        for b in _NYC_BOROUGHS:
+            if b in text:
+                return b
+    return None
+
 _GEO_LOCK  = threading.Lock()
 _GEO_CACHE = {}
 
@@ -1989,13 +2013,31 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def dedup(lst, filter_articles=False, validate_events=False,
-          date_from="", date_to="", weekday_after=None):
+          date_from="", date_to="", weekday_after=None,
+          categories=None, free_only=False, max_price=None,
+          boroughs=None):
     """
-    weekday_after: int minutes since midnight (e.g. 1020 = 5PM).
-      Events on Sat/Sun always pass. Weekday events with a known time only
-      pass if time >= weekday_after. Events with no time always pass
-      (we can't exclude what we can't read).
+    All filter params are optional (pass None / False / empty to disable).
+
+    weekday_after : int minutes since midnight (e.g. 1020 = 17*60 = 5 PM).
+      Weekday events with a known start time before this are dropped.
+      Weekend events and events with no listed time always pass.
+
+    categories    : set/list of category strings to keep (e.g. {"Music","Film"}).
+      None means all categories pass.
+
+    free_only     : if True, keep only events where price parses to 0.
+      Events with no price listed pass (can't tell).
+
+    max_price     : float. Keep events whose parsed price <= max_price.
+      Events with no price listed pass.
+
+    boroughs      : set/list of lowercase borough names to keep
+      (e.g. {"manhattan","brooklyn"}). Events with no detectable borough pass.
     """
+    cat_set = set(c.lower() for c in categories) if categories else None
+    boro_set = set(b.lower() for b in boroughs) if boroughs else None
+
     seen, out = set(), []
     for x in lst:
         name = (x.get("Name") or "").strip()
@@ -2003,22 +2045,44 @@ def dedup(lst, filter_articles=False, validate_events=False,
         if not k or k in seen: continue
         if filter_articles and _is_list_article(name): continue
         if validate_events and not _is_valid_event(x): continue
-        # Overlap filter: event overlaps [date_from, date_to] if
-        #   event_start <= date_to  AND  event_end >= date_from
+
+        # ── Date overlap ──────────────────────────────────────────────────────
         d_start = x.get("Date")    or ""
-        d_end   = x.get("DateEnd") or d_start  # single-day → start == end
+        d_end   = x.get("DateEnd") or d_start
         if date_from and d_end   and d_end   < date_from: continue
         if date_to   and d_start and d_start > date_to:   continue
-        # Availability filter: weekday cutoff time
+
+        # ── Weekday availability ──────────────────────────────────────────────
         if weekday_after is not None and d_start:
             try:
                 dow = datetime.strptime(d_start, "%Y-%m-%d").weekday()  # 0=Mon, 6=Sun
-                if dow < 5:  # weekday
+                if dow < 5:
                     t = parse_time_to_minutes(x.get("Time") or "")
                     if t is not None and t < weekday_after:
-                        continue  # has a known time before cutoff → skip
+                        continue
             except Exception:
-                pass  # unparseable date → keep the event
+                pass
+
+        # ── Category ─────────────────────────────────────────────────────────
+        if cat_set is not None:
+            cat = (x.get("Category") or "").lower()
+            if cat not in cat_set:
+                continue
+
+        # ── Price ─────────────────────────────────────────────────────────────
+        if free_only or max_price is not None:
+            price_n = parse_price_to_number(x.get("Price") or "")
+            if free_only and price_n is not None and price_n > 0:
+                continue
+            if max_price is not None and price_n is not None and price_n > max_price:
+                continue
+
+        # ── Borough ───────────────────────────────────────────────────────────
+        if boro_set is not None:
+            b = _event_borough(x)
+            if b is not None and b not in boro_set:
+                continue
+
         seen.add(k); out.append(x)
     return out
 

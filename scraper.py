@@ -31,7 +31,11 @@ def run(cities: list[str],
         progress_cb=None,
         date_from: str = "",
         date_to: str = "",
-        weekday_after: int | None = None) -> dict:
+        weekday_after: int | None = None,
+        categories: list | None = None,
+        free_only: bool = False,
+        max_price: float | None = None,
+        boroughs: list | None = None) -> dict:
     """
     Run the aggregator for the given list of city strings.
 
@@ -98,7 +102,9 @@ def run(cities: list[str],
         raw_count   = len(all_events)
         all_events  = _agg.dedup(all_events, filter_articles=True, validate_events=True,
                                  date_from=date_from, date_to=date_to,
-                                 weekday_after=weekday_after)
+                                 weekday_after=weekday_after,
+                                 categories=categories, free_only=free_only,
+                                 max_price=max_price, boroughs=boroughs)
         all_atts    = _agg.dedup(all_attractions)
         dropped     = raw_count - len(all_events)
         patched_tprint(f"\n  🔍  {raw_count} raw → {len(all_events)} events kept "

@@ -51,13 +51,38 @@
 
   label { font-size: 13px; font-weight: 600; color: var(--muted);
           display: block; margin-bottom: 6px; }
-  select, input[type=text] {
+  select, input[type=text], input[type=number] {
     width: 100%; padding: 10px 12px; border: 1px solid var(--border);
     border-radius: 6px; font-size: 14px; color: var(--text);
     background: #fff; appearance: none; outline: none;
     transition: border-color .15s;
   }
-  select:focus, input[type=text]:focus { border-color: var(--accent); }
+  select:focus, input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
+
+  /* Filter panels */
+  .filter-block { margin-top: 10px; }
+  .filter-toggle {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none;
+  }
+  .filter-toggle input[type=checkbox] { width: auto; cursor: pointer; }
+  .filter-toggle .filter-label { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
+  .filter-body {
+    display: none; margin-top: 10px; padding: 12px 14px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .filter-hint { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+
+  /* Category chips */
+  .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px;
+          border: 1px solid var(--border); border-radius: 20px; font-size: 12px;
+          cursor: pointer; background: #fff; transition: all .12s; }
+  .chip input { display: none; }
+  .chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* Borough chips */
+  .boro-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
   .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
   .checkbox-row input { width: auto; }
@@ -176,27 +201,104 @@
       </div>
     </div>
 
-    <!-- Availability filter -->
-    <div class="checkbox-row" style="margin-top:18px;">
-      <input type="checkbox" id="avail-enable" onchange="toggleAvail()">
-      <label for="avail-enable">Filter by weekday availability</label>
-    </div>
-    <div id="avail-panel" style="display:none; margin-top:10px; padding:12px 14px;
-         background:var(--bg); border:1px solid var(--border); border-radius:6px;">
-      <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
-        Weekday events (Mon–Fri) with a known start time earlier than this will be removed.
-        Weekend events and events with no listed time are always kept.
+    <!-- ── Filters ──────────────────────────────────────────────────────── -->
+    <div style="margin-top:22px; border-top:2px solid var(--border); padding-top:16px;">
+      <div style="font-size:13px; font-weight:700; color:var(--blue); margin-bottom:12px; letter-spacing:.03em;">
+        FILTERS <span style="font-weight:400; color:var(--muted); font-size:11px;">(all optional)</span>
       </div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <label for="weekday-after" style="margin:0; white-space:nowrap;">Available after</label>
-        <input type="time" id="weekday-after" value="17:00"
-               style="width:120px; padding:8px 10px; border:1px solid var(--border);
-                      border-radius:6px; font-size:14px; color:var(--text); background:#fff;">
-        <span style="font-size:13px; color:var(--muted);">on weekdays</span>
+
+      <!-- 1. Availability -->
+      <div class="filter-block">
+        <label class="filter-toggle">
+          <input type="checkbox" id="avail-enable" onchange="toggleFilter('avail')">
+          <span class="filter-label">⏰ Weekday Availability</span>
+        </label>
+        <div class="filter-body" id="body-avail">
+          <div class="filter-hint">Weekday events (Mon–Fri) with a known start time before this cutoff are removed. Weekend events and events with no listed time are always kept.</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <label style="margin:0; font-size:13px; white-space:nowrap;">Available after</label>
+            <input type="time" id="weekday-after" value="17:00"
+                   style="width:130px; padding:8px 10px; border:1px solid var(--border);
+                          border-radius:6px; font-size:14px; color:var(--text); background:#fff;">
+            <span style="font-size:13px; color:var(--muted);">on weekdays</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Categories -->
+      <div class="filter-block" style="margin-top:10px;">
+        <label class="filter-toggle">
+          <input type="checkbox" id="cat-enable" onchange="toggleFilter('cat')">
+          <span class="filter-label">🎭 Categories</span>
+        </label>
+        <div class="filter-body" id="body-cat">
+          <div class="filter-hint">Only show events in the selected categories. Click to toggle.</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <button type="button" onclick="setAllCats(true)"  style="font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;padding:0;">Select all</button>
+            <button type="button" onclick="setAllCats(false)" style="font-size:11px;background:none;border:none;color:var(--muted);cursor:pointer;padding:0;">Clear all</button>
+          </div>
+          <div class="chip-grid" id="cat-chips">
+            {% for cat in [
+              ("🎵","Music"),("🎭","Arts & Theatre"),("🎬","Film"),
+              ("⚽","Sports"),("🌿","Nature & Parks"),("🍽️","Food & Drink"),
+              ("🎓","Education"),("🤝","Community"),("🛍️","Shopping"),
+              ("🎪","Amusement"),("✨","Entertainment")
+            ] %}
+            <label class="chip selected">
+              <input type="checkbox" class="cat-cb" value="{{ cat[1] }}" checked>
+              {{ cat[0] }} {{ cat[1] }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Price -->
+      <div class="filter-block" style="margin-top:10px;">
+        <label class="filter-toggle">
+          <input type="checkbox" id="price-enable" onchange="toggleFilter('price')">
+          <span class="filter-label">💰 Price</span>
+        </label>
+        <div class="filter-body" id="body-price">
+          <div class="filter-hint">Events with no listed price are always kept.</div>
+          <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+            <label class="filter-toggle" style="margin-top:4px;">
+              <input type="checkbox" id="free-only" onchange="onFreeOnly()">
+              <span style="font-size:13px; margin:0;">Free events only</span>
+            </label>
+            <div id="maxprice-wrap" style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:13px; color:var(--muted);">or max price</span>
+              <div style="position:relative; width:100px;">
+                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--muted);">$</span>
+                <input type="number" id="max-price" min="0" step="5" placeholder="—"
+                       style="padding:8px 10px 8px 22px; width:100px;">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Borough (NYC) -->
+      <div class="filter-block" style="margin-top:10px;">
+        <label class="filter-toggle">
+          <input type="checkbox" id="boro-enable" onchange="toggleFilter('boro')">
+          <span class="filter-label">📍 Borough (NYC)</span>
+        </label>
+        <div class="filter-body" id="body-boro">
+          <div class="filter-hint">Events without a detectable borough are always kept. Most useful for NYC Parks events which tag a specific borough.</div>
+          <div class="boro-grid">
+            {% for boro in ["Manhattan","Brooklyn","Queens","Bronx","Staten Island"] %}
+            <label class="chip selected">
+              <input type="checkbox" class="boro-cb" value="{{ boro.lower() }}" checked>
+              {{ boro }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="checkbox-row" style="margin-top:14px;">
+    <div class="checkbox-row" style="margin-top:18px;">
       <input type="checkbox" id="skip-att">
       <label for="skip-att">Skip landmarks / attractions (faster)</label>
     </div>
@@ -243,9 +345,35 @@
 <script>
 let currentMode = 'single';
 
-function toggleAvail() {
-  const enabled = document.getElementById('avail-enable').checked;
-  document.getElementById('avail-panel').style.display = enabled ? 'block' : 'none';
+// ── Filter toggle ────────────────────────────────────────────────────────────
+function toggleFilter(key) {
+  const enabled = document.getElementById(key + '-enable').checked;
+  document.getElementById('body-' + key).style.display = enabled ? 'block' : 'none';
+}
+
+// ── Category chips ───────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const cb = chip.querySelector('input[type=checkbox]');
+      cb.checked = !cb.checked;
+      chip.classList.toggle('selected', cb.checked);
+    });
+  });
+});
+
+function setAllCats(state) {
+  document.querySelectorAll('.cat-cb').forEach(cb => {
+    cb.checked = state;
+    cb.closest('.chip').classList.toggle('selected', state);
+  });
+}
+
+// ── Price: free-only disables max-price input ────────────────────────────────
+function onFreeOnly() {
+  const free = document.getElementById('free-only').checked;
+  document.getElementById('max-price').disabled = free;
+  document.getElementById('maxprice-wrap').style.opacity = free ? '.4' : '1';
 }
 
 function setMode(mode) {
@@ -299,9 +427,31 @@ async function startRun() {
   fd.append('date_from',        dateFrom);
   fd.append('date_to',          dateTo);
 
-  const availEnabled = document.getElementById('avail-enable').checked;
-  if (availEnabled) {
+  // Availability
+  if (document.getElementById('avail-enable').checked) {
     fd.append('weekday_after', document.getElementById('weekday-after').value);
+  }
+
+  // Categories (only send if filter is enabled and not all selected)
+  if (document.getElementById('cat-enable').checked) {
+    const selected = [...document.querySelectorAll('.cat-cb:checked')].map(cb => cb.value);
+    fd.append('categories', selected.join(','));
+  }
+
+  // Price
+  if (document.getElementById('price-enable').checked) {
+    if (document.getElementById('free-only').checked) {
+      fd.append('free_only', '1');
+    } else {
+      const mp = document.getElementById('max-price').value;
+      if (mp) fd.append('max_price', mp);
+    }
+  }
+
+  // Borough
+  if (document.getElementById('boro-enable').checked) {
+    const selected = [...document.querySelectorAll('.boro-cb:checked')].map(cb => cb.value);
+    if (selected.length) fd.append('boroughs', selected.join(','));
   }
 
   let jobId;

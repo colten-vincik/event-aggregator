@@ -88,6 +88,24 @@ def start_run():
         except Exception:
             pass
 
+    # categories: comma-separated list, or None if not set
+    cats_raw = request.form.get("categories", "").strip()
+    categories = [c.strip() for c in cats_raw.split(",") if c.strip()] or None
+
+    # price filters
+    free_only = request.form.get("free_only") == "1"
+    max_price = None
+    mp_raw = request.form.get("max_price", "").strip()
+    if mp_raw and not free_only:
+        try:
+            max_price = float(mp_raw)
+        except Exception:
+            pass
+
+    # boroughs: comma-separated list, or None if not set
+    boros_raw = request.form.get("boroughs", "").strip()
+    boroughs = [b.strip().lower() for b in boros_raw.split(",") if b.strip()] or None
+
     if not value:
         return jsonify({"error": "No city / region selected."}), 400
 
@@ -117,6 +135,10 @@ def start_run():
                 date_from=date_from,
                 date_to=date_to,
                 weekday_after=weekday_after,
+                categories=categories,
+                free_only=free_only,
+                max_price=max_price,
+                boroughs=boroughs,
             )
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "done"
