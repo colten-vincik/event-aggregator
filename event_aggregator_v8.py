@@ -402,6 +402,25 @@ def parse_time(s):
     if m: return m.group(1)
     return ""
 
+def parse_time_to_minutes(s):
+    """Convert a time string to minutes since midnight, or None if unparseable."""
+    if not s: return None
+    s = str(s).strip()
+    # ISO / 24-h: "19:30", "T19:30"
+    m = re.search(r"(\d{1,2}):(\d{2})\s*$", s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    # 12-h with am/pm: "7:30 PM", "7:30pm", "7:30 p.m.", "7PM"
+    m = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)", s, re.I)
+    if m:
+        h = int(m.group(1))
+        mins = int(m.group(2) or 0)
+        meridiem = m.group(3).lower().replace(".", "")
+        if meridiem == "pm" and h != 12: h += 12
+        if meridiem == "am" and h == 12: h = 0
+        return h * 60 + mins
+    return None
+
 _GEO_LOCK  = threading.Lock()
 _GEO_CACHE = {}
 
@@ -1970,7 +1989,13 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def dedup(lst, filter_articles=False, validate_events=False,
-          date_from="", date_to=""):
+          date_from="", date_to="", weekday_after=None):
+    """
+    weekday_after: int minutes since midnight (e.g. 1020 = 5PM).
+      Events on Sat/Sun always pass. Weekday events with a known time only
+      pass if time >= weekday_after. Events with no time always pass
+      (we can't exclude what we can't read).
+    """
     seen, out = set(), []
     for x in lst:
         name = (x.get("Name") or "").strip()
@@ -1984,6 +2009,16 @@ def dedup(lst, filter_articles=False, validate_events=False,
         d_end   = x.get("DateEnd") or d_start  # single-day → start == end
         if date_from and d_end   and d_end   < date_from: continue
         if date_to   and d_start and d_start > date_to:   continue
+        # Availability filter: weekday cutoff time
+        if weekday_after is not None and d_start:
+            try:
+                dow = datetime.strptime(d_start, "%Y-%m-%d").weekday()  # 0=Mon, 6=Sun
+                if dow < 5:  # weekday
+                    t = parse_time_to_minutes(x.get("Time") or "")
+                    if t is not None and t < weekday_after:
+                        continue  # has a known time before cutoff → skip
+            except Exception:
+                pass  # unparseable date → keep the event
         seen.add(k); out.append(x)
     return out
 

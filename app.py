@@ -78,6 +78,16 @@ def start_run():
     date_from        = request.form.get("date_from", "").strip()
     date_to          = request.form.get("date_to", "").strip()
 
+    # weekday_after: "HH:MM" string → int minutes, or None if not set
+    weekday_after = None
+    wa_raw = request.form.get("weekday_after", "").strip()
+    if wa_raw:
+        try:
+            h, m = wa_raw.split(":")
+            weekday_after = int(h) * 60 + int(m)
+        except Exception:
+            pass
+
     if not value:
         return jsonify({"error": "No city / region selected."}), 400
 
@@ -106,6 +116,7 @@ def start_run():
                 progress_cb=cb,
                 date_from=date_from,
                 date_to=date_to,
+                weekday_after=weekday_after,
             )
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "done"

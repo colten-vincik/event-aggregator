@@ -30,7 +30,8 @@ def run(cities: list[str],
         output_dir: str = "output",
         progress_cb=None,
         date_from: str = "",
-        date_to: str = "") -> dict:
+        date_to: str = "",
+        weekday_after: int | None = None) -> dict:
     """
     Run the aggregator for the given list of city strings.
 
@@ -96,7 +97,8 @@ def run(cities: list[str],
 
         raw_count   = len(all_events)
         all_events  = _agg.dedup(all_events, filter_articles=True, validate_events=True,
-                                 date_from=date_from, date_to=date_to)
+                                 date_from=date_from, date_to=date_to,
+                                 weekday_after=weekday_after)
         all_atts    = _agg.dedup(all_attractions)
         dropped     = raw_count - len(all_events)
         patched_tprint(f"\n  🔍  {raw_count} raw → {len(all_events)} events kept "

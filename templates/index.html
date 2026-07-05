@@ -176,6 +176,26 @@
       </div>
     </div>
 
+    <!-- Availability filter -->
+    <div class="checkbox-row" style="margin-top:18px;">
+      <input type="checkbox" id="avail-enable" onchange="toggleAvail()">
+      <label for="avail-enable">Filter by weekday availability</label>
+    </div>
+    <div id="avail-panel" style="display:none; margin-top:10px; padding:12px 14px;
+         background:var(--bg); border:1px solid var(--border); border-radius:6px;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">
+        Weekday events (Mon–Fri) with a known start time earlier than this will be removed.
+        Weekend events and events with no listed time are always kept.
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <label for="weekday-after" style="margin:0; white-space:nowrap;">Available after</label>
+        <input type="time" id="weekday-after" value="17:00"
+               style="width:120px; padding:8px 10px; border:1px solid var(--border);
+                      border-radius:6px; font-size:14px; color:var(--text); background:#fff;">
+        <span style="font-size:13px; color:var(--muted);">on weekdays</span>
+      </div>
+    </div>
+
     <div class="checkbox-row" style="margin-top:14px;">
       <input type="checkbox" id="skip-att">
       <label for="skip-att">Skip landmarks / attractions (faster)</label>
@@ -222,6 +242,11 @@
 
 <script>
 let currentMode = 'single';
+
+function toggleAvail() {
+  const enabled = document.getElementById('avail-enable').checked;
+  document.getElementById('avail-panel').style.display = enabled ? 'block' : 'none';
+}
 
 function setMode(mode) {
   currentMode = mode;
@@ -273,6 +298,11 @@ async function startRun() {
   fd.append('skip_attractions', skipAtt);
   fd.append('date_from',        dateFrom);
   fd.append('date_to',          dateTo);
+
+  const availEnabled = document.getElementById('avail-enable').checked;
+  if (availEnabled) {
+    fd.append('weekday_after', document.getElementById('weekday-after').value);
+  }
 
   let jobId;
   try {
