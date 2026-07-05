@@ -125,6 +125,9 @@ def start_run():
         def cb(msg):
             q.put(msg)
 
+        def _clean_pick(e):
+            return {k: v for k, v in e.items() if not k.startswith("_")}
+
         try:
             result = scraper.run(
                 cities=cities,
@@ -140,6 +143,7 @@ def start_run():
                 max_price=max_price,
                 boroughs=boroughs,
             )
+            result["picks"] = [_clean_pick(p) for p in result.get("picks", [])]
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "done"
                 _JOBS[job_id]["result"] = result

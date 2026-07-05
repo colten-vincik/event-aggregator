@@ -124,10 +124,13 @@ def run(cities: list[str],
         map_path    = out_dir / f"events_{safe}_{ts}_map.html"
         report_path = out_dir / f"run_report_{ts}.txt"
 
+        picks = _agg.quick_pick(all_events, n=5)
+
         from openpyxl import Workbook
         wb = Workbook()
         wb.remove(wb.active)
         _agg.build_summary(wb, all_events, all_atts, label)
+        if picks:      _agg.build_quick_picks_sheet(wb, picks, label)
         if all_events: _agg.build_events_sheet(wb, all_events, label)
         if all_atts:   _agg.build_attractions_sheet(wb, all_atts, label)
         wb.save(str(xlsx_path))
@@ -146,6 +149,14 @@ def run(cities: list[str],
             "events":      len(all_events),
             "attractions": len(all_atts),
             "elapsed":     round(elapsed, 1),
+            "picks":       picks,
+            "by_category": dict(
+                sorted(
+                    __import__("collections").Counter(
+                        e.get("Category","Other") for e in all_events
+                    ).most_common()
+                )
+            ),
         }
 
     finally:

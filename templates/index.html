@@ -132,6 +132,38 @@
   .dl-map  { background: var(--blue); color: #fff; }
   .dl-log  { background: #f0f0f0; color: var(--text); }
 
+  /* Quick Picks */
+  .picks-grid { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .pick-card {
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--card);
+  }
+  .pick-card-header {
+    background: var(--blue); color: #fff; padding: 9px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pick-card-header .pick-title { font-size: 13px; font-weight: 700; flex: 1; }
+  .pick-card-header .pick-cat   { font-size: 11px; opacity: .75; }
+  .pick-card-body { padding: 10px 14px; font-size: 12px; color: var(--muted); }
+  .pick-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
+  .pick-meta span { display: flex; align-items: center; gap: 4px; }
+  .pick-actions { display: flex; gap: 8px; }
+  .pick-btn {
+    padding: 5px 10px; border-radius: 5px; border: none; font-size: 11px;
+    font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .pick-btn-go   { background: var(--accent); color: #fff; }
+  .pick-btn-cal  { background: #34a853;       color: #fff; }
+  .pick-btn-go:hover  { opacity: .85; }
+  .pick-btn-cal:hover { opacity: .85; }
+
+  /* Category breakdown */
+  .cat-breakdown { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+  .cat-pill {
+    padding: 3px 9px; border-radius: 12px; font-size: 11px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+  }
+
   /* Error */
   #error-panel { display: none; background: #fdf0ef; border: 1px solid #e8b4b0;
                   border-radius: 8px; padding: 16px 20px; color: var(--red); font-size: 13px; }
@@ -322,7 +354,21 @@
       <div class="stat-box"><div class="num" id="r-att">—</div><div class="lbl">Attractions</div></div>
       <div class="stat-box"><div class="num" id="r-time">—</div><div class="lbl">Seconds</div></div>
     </div>
-    <div class="dl-buttons">
+
+    <!-- Category breakdown -->
+    <div id="cat-breakdown" class="cat-breakdown"></div>
+
+    <!-- Quick Picks -->
+    <div id="picks-section" style="display:none;">
+      <div style="font-size:14px; font-weight:700; color:var(--blue); margin:18px 0 4px;">
+        🎯 Quick Picks
+        <span style="font-size:11px; font-weight:400; color:var(--muted); margin-left:6px;">randomly selected from your filtered results</span>
+        <button onclick="reshufflePicks()" style="float:right; font-size:11px; background:none; border:1px solid var(--border); border-radius:5px; padding:3px 9px; cursor:pointer; color:var(--muted);">↺ Reshuffle</button>
+      </div>
+      <div class="picks-grid" id="picks-grid"></div>
+    </div>
+
+    <div class="dl-buttons" style="margin-top:18px;">
       <a id="dl-xlsx" class="dl-btn dl-xlsx" href="#" download>📊 Download Excel</a>
       <a id="dl-map"  class="dl-btn dl-map"  href="#" target="_blank">🗺 Open Map</a>
       <a id="dl-log"  class="dl-btn dl-log"  href="#" download>📄 Run Report</a>
@@ -351,16 +397,6 @@ function toggleFilter(key) {
   document.getElementById('body-' + key).style.display = enabled ? 'block' : 'none';
 }
 
-// ── Category chips ───────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const cb = chip.querySelector('input[type=checkbox]');
-      cb.checked = !cb.checked;
-      chip.classList.toggle('selected', cb.checked);
-    });
-  });
-});
 
 function setAllCats(state) {
   document.querySelectorAll('.cat-cb').forEach(cb => {
@@ -396,6 +432,8 @@ function hide(id)  { document.getElementById(id).style.display = 'none';  }
 async function startRun() {
   const value = getValue();
   if (!value) { alert('Please select a city or enter cities.'); return; }
+
+  savePrefs();
 
   const skipAtt = document.getElementById('skip-att').checked ? '1' : '0';
 
@@ -513,6 +551,8 @@ async function fetchResult(jobId) {
     document.getElementById('dl-xlsx').href = '/download/' + jobId + '/xlsx';
     document.getElementById('dl-map').href  = '/download/' + jobId + '/map';
     document.getElementById('dl-log').href  = '/download/' + jobId + '/report';
+    renderBreakdown(r.by_category || {});
+    renderPicks(r.picks || []);
     show('results-panel');
   } catch (e) {
     showError('Could not retrieve results: ' + e.message);
@@ -525,6 +565,166 @@ function showError(msg) {
   document.getElementById('error-msg').textContent = msg;
   show('error-panel');
 }
+
+// ── Quick Picks ──────────────────────────────────────────────────────────────
+let _allPicks = [];
+
+function renderPicks(picks) {
+  _allPicks = picks;
+  const grid = document.getElementById('picks-grid');
+  grid.innerHTML = '';
+  if (!picks || !picks.length) { hide('picks-section'); return; }
+  show('picks-section');
+
+  const CARD_COLORS = ['#1F3864','#2E75B6','#375623','#833C00','#595959'];
+  picks.forEach((e, i) => {
+    const color   = CARD_COLORS[i % CARD_COLORS.length];
+    const gcalUrl = makeGCalUrl(e);
+    const parts   = [];
+    if (e.Date)  parts.push(`📅 ${e.Date}${e.Time ? ' · ' + e.Time : ''}`);
+    if (e.Venue) parts.push(`📍 ${e.Venue}`);
+    if (e.Price) parts.push(`💰 ${e.Price}`);
+
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="pick-card">
+        <div class="pick-card-header" style="background:${color}">
+          <span class="pick-title">${esc(e.Name)}</span>
+          <span class="pick-cat">${esc(e.Category || '')}</span>
+        </div>
+        <div class="pick-card-body">
+          <div class="pick-meta">${parts.map(p => `<span>${esc(p)}</span>`).join('')}</div>
+          <div class="pick-actions">
+            ${e.URL ? `<a href="${esc(e.URL)}" target="_blank" class="pick-btn pick-btn-go">🔗 View Event</a>` : ''}
+            ${gcalUrl ? `<a href="${gcalUrl}" target="_blank" class="pick-btn pick-btn-cal">📅 Add to Calendar</a>` : ''}
+          </div>
+        </div>
+      </div>`);
+  });
+}
+
+function reshufflePicks() {
+  if (!_allPicks.length) return;
+  // Shuffle and re-render a random subset of the same picks
+  const shuffled = [..._allPicks].sort(() => Math.random() - 0.5);
+  renderPicks(shuffled);
+}
+
+function makeGCalUrl(e) {
+  if (!e.Date) return '';
+  try {
+    const d = e.Date.replace(/-/g, '');
+    // parse time or default to 18:00–20:00
+    let start = d + 'T180000', end = d + 'T200000';
+    if (e.Time) {
+      const m = e.Time.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+      if (m) {
+        let h = parseInt(m[1]), min = parseInt(m[2]);
+        const mer = (m[3] || '').toLowerCase();
+        if (mer === 'pm' && h !== 12) h += 12;
+        if (mer === 'am' && h === 12) h = 0;
+        start = `${d}T${String(h).padStart(2,'0')}${String(min).padStart(2,'0')}00`;
+        end   = `${d}T${String(Math.min(h+2,23)).padStart(2,'0')}${String(min).padStart(2,'0')}00`;
+      }
+    }
+    const loc   = [e.Venue, e.Address, e.City].filter(Boolean).join(', ');
+    const notes = `Source: ${e.Source || ''}${e.URL ? '\n' + e.URL : ''}`;
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+      + '&text='    + encodeURIComponent(e.Name)
+      + '&dates='   + start + '/' + end
+      + '&location='+ encodeURIComponent(loc)
+      + '&details=' + encodeURIComponent(notes);
+  } catch { return ''; }
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Category breakdown ───────────────────────────────────────────────────────
+function renderBreakdown(byCat) {
+  const el = document.getElementById('cat-breakdown');
+  el.innerHTML = '';
+  if (!byCat) return;
+  Object.entries(byCat).sort((a,b) => b[1]-a[1]).forEach(([cat, cnt]) => {
+    el.insertAdjacentHTML('beforeend',
+      `<span class="cat-pill">${esc(cat)} <strong>${cnt}</strong></span>`);
+  });
+}
+
+// ── localStorage — save & restore filter settings ────────────────────────────
+const PREFS_KEY = 'ea_prefs_v1';
+
+function savePrefs() {
+  const prefs = {
+    city:       document.getElementById('city-select')?.value,
+    mode:       currentMode,
+    skipAtt:    document.getElementById('skip-att').checked,
+    availOn:    document.getElementById('avail-enable').checked,
+    availTime:  document.getElementById('weekday-after').value,
+    catOn:      document.getElementById('cat-enable').checked,
+    cats:       [...document.querySelectorAll('.cat-cb')].map(cb => ({v:cb.value, c:cb.checked})),
+    priceOn:    document.getElementById('price-enable').checked,
+    freeOnly:   document.getElementById('free-only').checked,
+    maxPrice:   document.getElementById('max-price').value,
+    boroOn:     document.getElementById('boro-enable').checked,
+    boros:      [...document.querySelectorAll('.boro-cb')].map(cb => ({v:cb.value, c:cb.checked})),
+  };
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+}
+
+function loadPrefs() {
+  let prefs;
+  try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return; }
+  if (!prefs || !Object.keys(prefs).length) return;
+
+  if (prefs.mode) setMode(prefs.mode);
+  if (prefs.city && document.getElementById('city-select'))
+    document.getElementById('city-select').value = prefs.city;
+  if (prefs.skipAtt != null) document.getElementById('skip-att').checked = prefs.skipAtt;
+
+  // Availability
+  if (prefs.availOn) {
+    document.getElementById('avail-enable').checked = true;
+    toggleFilter('avail');
+    if (prefs.availTime) document.getElementById('weekday-after').value = prefs.availTime;
+  }
+  // Categories
+  if (prefs.catOn && prefs.cats) {
+    document.getElementById('cat-enable').checked = true;
+    toggleFilter('cat');
+    prefs.cats.forEach(({v,c}) => {
+      const cb = document.querySelector(`.cat-cb[value="${CSS.escape(v)}"]`);
+      if (cb) { cb.checked = c; cb.closest('.chip').classList.toggle('selected', c); }
+    });
+  }
+  // Price
+  if (prefs.priceOn) {
+    document.getElementById('price-enable').checked = true;
+    toggleFilter('price');
+    if (prefs.freeOnly) { document.getElementById('free-only').checked = true; onFreeOnly(); }
+    else if (prefs.maxPrice) document.getElementById('max-price').value = prefs.maxPrice;
+  }
+  // Boroughs
+  if (prefs.boroOn && prefs.boros) {
+    document.getElementById('boro-enable').checked = true;
+    toggleFilter('boro');
+    prefs.boros.forEach(({v,c}) => {
+      const cb = document.querySelector(`.boro-cb[value="${CSS.escape(v)}"]`);
+      if (cb) { cb.checked = c; cb.closest('.chip').classList.toggle('selected', c); }
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadPrefs();
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const cb = chip.querySelector('input[type=checkbox]');
+      cb.checked = !cb.checked;
+      chip.classList.toggle('selected', cb.checked);
+    });
+  });
+});
 </script>
 </body>
 </html>

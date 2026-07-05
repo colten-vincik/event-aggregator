@@ -2087,6 +2087,52 @@ def dedup(lst, filter_articles=False, validate_events=False,
     return out
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  QUICK PICK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import random as _random
+
+def quick_pick(events, n=5):
+    """Return n varied, high-quality events weighted by data completeness."""
+    if not events: return []
+    n = min(n, len(events))
+
+    def score(e):
+        # Prefer events with time, venue, and URL — avoids low-info stubs
+        return 1 + bool(e.get("Time")) * 2 + bool(e.get("Venue")) + bool(e.get("URL"))
+
+    # One pick per category first (variety), then fill remaining slots
+    by_cat: dict[str, list] = {}
+    for e in events:
+        by_cat.setdefault(e.get("Category", "Entertainment"), []).append(e)
+
+    cats = list(by_cat.keys())
+    _random.shuffle(cats)
+
+    picks, pick_set = [], set()
+    for cat in cats:
+        if len(picks) >= n: break
+        pool    = by_cat[cat]
+        weights = [score(e) for e in pool]
+        choice  = _random.choices(pool, weights=weights, k=1)[0]
+        key     = choice.get("Name","").lower()[:60]
+        if key not in pick_set:
+            picks.append(choice); pick_set.add(key)
+
+    # Fill any remaining slots from the full list
+    remaining = [e for e in events if e.get("Name","").lower()[:60] not in pick_set]
+    if remaining and len(picks) < n:
+        weights = [score(e) for e in remaining]
+        for choice in _random.choices(remaining, weights=weights,
+                                      k=min(n - len(picks), len(remaining))):
+            key = choice.get("Name","").lower()[:60]
+            if key not in pick_set:
+                picks.append(choice); pick_set.add(key)
+
+    return picks[:n]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  EXCEL OUTPUT
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2141,6 +2187,62 @@ def build_summary(wb, events, attractions, label):
         row += 1
 
     set_widths(ws, {"A":32,"B":14,"C":14})
+
+def build_quick_picks_sheet(wb, picks, label):
+    """Card-style sheet: one pick per block of rows, visually distinct."""
+    if not picks: return
+    ws = wb.create_sheet("🎯 Quick Picks", 0)
+    ws.sheet_properties.tabColor = "C00000"
+    _title(ws, f"Quick Picks — {label}", 4, "C00000", 14)
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 38
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 14
+
+    CARD_COLOURS = ["1F3864","2E75B6","375623","833C00","595959"]
+
+    row = 3
+    for i, e in enumerate(picks):
+        bg       = CARD_COLOURS[i % len(CARD_COLOURS)]
+        cat_bg   = CAT_COLOURS.get(e.get("Category",""), "F5F5F5")
+        url      = e.get("URL","")
+        date_str = e.get("Date","")
+        time_str = e.get("Time","")
+
+        # ── Card header: event name ───────────────────────────────────────────
+        ws.merge_cells(f"A{row}:D{row}")
+        name_cell = ws.cell(row, 1, f"  {i+1}. {e.get('Name','')}")
+        hdr(name_cell, bg=bg, sz=11)
+        name_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        # ── Detail rows ───────────────────────────────────────────────────────
+        details = [
+            ("Category",    e.get("Category",""),      cat_bg),
+            ("Date / Time", f"{date_str}  {time_str}".strip(), "FFFFFF"),
+            ("Venue",       e.get("Venue","") or e.get("City",""), "FFFFFF"),
+            ("Price",       e.get("Price","") or "—",  "FFFFFF"),
+            ("Source",      e.get("Source",""),         "F2F2F2"),
+            ("Link",        url,                        "F2F2F2"),
+        ]
+        for label_txt, val_txt, rbg in details:
+            lc = ws.cell(row, 1, label_txt)
+            lc.font   = Font(bold=True, name="Arial", size=9)
+            lc.fill   = PatternFill("solid", fgColor="E8E8E8")
+            lc.border = _b()
+            lc.alignment = Alignment(vertical="center")
+
+            ws.merge_cells(f"B{row}:D{row}")
+            vc = ws.cell(row, 2, val_txt)
+            dat(vc, rbg)
+            vc.alignment = Alignment(wrap_text=True, vertical="center")
+            if label_txt == "Link" and url:
+                _link_cell(vc, url)
+            ws.row_dimensions[row].height = 16
+            row += 1
+
+        row += 1  # blank gap between cards
 
 def _link_cell(cell, url):
     """Style a cell as a short hyperlink: show domain as display text."""
