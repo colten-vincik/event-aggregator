@@ -3,12 +3,14 @@ app.py — Flask web interface for the US Event Aggregator
 
 Routes
 ------
-GET  /                   → city picker form
-POST /run                → start a scraper job, return job_id (JSON)
-GET  /stream/<job_id>    → Server-Sent Events stream of progress lines
-GET  /status/<job_id>    → job status + result paths (JSON)
-GET  /download/<job_id>/<kind>  → download xlsx | map | report
-GET  /health             → uptime check for Railway / Render
+GET  /                        → city picker form
+POST /run                     → start a scraper job, return job_id (JSON)
+GET  /stream/<job_id>         → Server-Sent Events stream of progress lines
+GET  /status/<job_id>         → job status + result paths (JSON)
+GET  /events/<job_id>         → full event list for the browser table (JSON)
+GET  /download/<job_id>/<kind>→ download xlsx | map | report
+POST /plan                    → generate evening itinerary via Claude API (JSON)
+GET  /health                  → uptime check for Railway / Render
 """
 
 import os, uuid, time, queue, threading
@@ -144,9 +146,12 @@ def start_run():
                 boroughs=boroughs,
             )
             result["picks"] = [_clean_pick(p) for p in result.get("picks", [])]
+            # Store events separately — keeps /status payload small
+            events_data = result.pop("events_data", [])
             with _JOBS_LOCK:
-                _JOBS[job_id]["status"] = "done"
-                _JOBS[job_id]["result"] = result
+                _JOBS[job_id]["status"]      = "done"
+                _JOBS[job_id]["result"]      = result
+                _JOBS[job_id]["events_data"] = events_data
         except Exception as e:
             with _JOBS_LOCK:
                 _JOBS[job_id]["status"] = "error"
@@ -214,6 +219,75 @@ def download(job_id, kind):
     if not path.exists():
         abort(404)
     return send_file(str(path), as_attachment=True, download_name=path.name)
+
+
+@app.route("/events/<job_id>")
+def get_events(job_id):
+    """Return the full sorted event list for the in-browser table."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+    if not job or job["status"] != "done":
+        abort(404)
+    return jsonify(job.get("events_data", []))
+
+
+@app.route("/plan", methods=["POST"])
+def plan_evening():
+    """Generate an evening itinerary via Claude for the selected events."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY is not configured."}), 503
+
+    data   = request.get_json(silent=True) or {}
+    events = data.get("events", [])
+    if not events:
+        return jsonify({"error": "No events provided."}), 400
+
+    # Build a concise event summary for the prompt
+    lines = []
+    for e in events:
+        parts = [f"• {e.get('Name', '?')}"]
+        if e.get("Category"): parts.append(f"({e['Category']})")
+        if e.get("Date"):     parts.append(f"— {e['Date']}")
+        if e.get("Time"):     parts.append(f"at {e['Time']}")
+        if e.get("Venue"):    parts.append(f"@ {e['Venue']}")
+        if e.get("City"):     parts.append(f"in {e['City']}")
+        if e.get("Price"):    parts.append(f"[{e['Price']}]")
+        if e.get("URL"):      parts.append(f"\n  {e['URL']}")
+        lines.append(" ".join(parts))
+
+    events_block = "\n".join(lines)
+
+    prompt = f"""You are helping a New York City resident plan their evening after work. \
+They finish work around 5:00–5:30 PM and want to make the most of their night. \
+They are comfortable with the subway and walking.
+
+They have selected the following event(s) as the anchor(s) for their evening:
+
+{events_block}
+
+Write a practical, loose evening itinerary as a timeline starting from when they leave work. Include:
+
+- A realistic lead-up: where to grab a quick dinner or drink near the first venue's neighborhood, and how early to arrive
+- Each selected event in chronological order with a sentence of context (what to expect, tips)
+- Subway or walking guidance when moving between venues
+- A post-event suggestion (a nearby bar, a walk, a late-night spot) if the evening ends before midnight
+- One backup idea in case something falls through
+
+Write like a knowledgeable NYC friend giving real advice — specific, opinionated, and brief. \
+Use a clear timeline format (e.g. "5:30 PM —"). Keep the total response under 450 words."""
+
+    try:
+        import anthropic
+        client  = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return jsonify({"itinerary": message.content[0].text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/health")

@@ -164,6 +164,90 @@
     background: var(--bg); border: 1px solid var(--border); color: var(--muted);
   }
 
+  /* ── Event browser ───────────────────────────────────────────────────── */
+  #browser-panel { display: none; }
+  .browser-toolbar {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .browser-toolbar input[type=text] {
+    flex: 1; min-width: 180px; padding: 8px 12px; font-size: 13px;
+  }
+  .browser-toolbar select {
+    padding: 8px 10px; font-size: 13px; width: auto;
+  }
+  .ev-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+  table.ev-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.ev-table thead th {
+    background: var(--blue); color: #fff; padding: 9px 10px;
+    text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  table.ev-table thead th:hover { background: #2a4a80; }
+  table.ev-table thead th.sorted-asc::after  { content: " ▲"; }
+  table.ev-table thead th.sorted-desc::after { content: " ▼"; }
+  table.ev-table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
+  table.ev-table tbody tr:hover    { background: #f0f4ff; }
+  table.ev-table tbody tr.selected { background: #dce8ff; }
+  table.ev-table td { padding: 7px 10px; vertical-align: middle; }
+  table.ev-table td.td-name { max-width: 220px; font-weight: 600; }
+  table.ev-table td.td-name a { color: var(--accent); text-decoration: none; }
+  table.ev-table td.td-name a:hover { text-decoration: underline; }
+  .cat-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: 700; background: var(--bg); border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  #show-more-btn {
+    display: block; width: 100%; margin-top: 10px; padding: 9px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; color: var(--muted); cursor: pointer;
+  }
+  #show-more-btn:hover { background: var(--border); }
+
+  /* ── Sticky selection bar ─────────────────────────────────────────────── */
+  #sel-bar {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+    background: var(--blue); color: #fff;
+    padding: 12px 24px; display: none;
+    align-items: center; gap: 14px; box-shadow: 0 -2px 12px rgba(0,0,0,.25);
+  }
+  #sel-bar-count { font-size: 14px; font-weight: 600; flex: 1; }
+  #sel-bar-clear { background: none; border: 1px solid rgba(255,255,255,.4);
+    color: #fff; border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+  #sel-bar-plan  { background: #34a853; border: none; color: #fff; border-radius: 6px;
+    padding: 8px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  #sel-bar-plan:hover  { background: #2d9148; }
+  #sel-bar-clear:hover { background: rgba(255,255,255,.1); }
+
+  /* ── Itinerary panel ──────────────────────────────────────────────────── */
+  #itinerary-panel { display: none; }
+  .itin-loading { text-align: center; padding: 32px; color: var(--muted); font-size: 14px; }
+  .itin-loading .spinner {
+    width: 32px; height: 32px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .itin-body { line-height: 1.75; font-size: 14px; color: var(--text); }
+  .itin-entry {
+    padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: #f0f5ff; margin: 8px 0; border-radius: 0 6px 6px 0;
+  }
+  .itin-entry strong { color: var(--blue); }
+  .itin-line  { margin: 4px 0; }
+  .itin-bullet { margin: 3px 0 3px 16px; }
+  .itin-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .itin-btn {
+    padding: 9px 16px; border-radius: 7px; border: none; font-size: 13px;
+    font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .itin-btn-back { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+  .itin-btn-dl   { background: var(--blue); color: #fff; }
+  .itin-btn-back:hover { background: var(--border); }
+  .itin-btn-dl:hover   { opacity: .85; }
+
   /* Error */
   #error-panel { display: none; background: #fdf0ef; border: 1px solid #e8b4b0;
                   border-radius: 8px; padding: 16px 20px; color: var(--red); font-size: 13px; }
@@ -375,6 +459,52 @@
     </div>
   </div>
 
+  <!-- ── Event Browser ─────────────────────────────────────────────────── -->
+  <div class="card" id="browser-panel">
+    <h2>📋 Browse Events</h2>
+    <div class="browser-toolbar">
+      <input type="text" id="ev-search" placeholder="Search name, venue, category…" oninput="applyFilter()">
+      <select id="ev-cat-filter" onchange="applyFilter()">
+        <option value="">All categories</option>
+        <option>Music</option><option>Arts &amp; Theatre</option><option>Film</option>
+        <option>Sports</option><option>Nature &amp; Parks</option><option>Food &amp; Drink</option>
+        <option>Education</option><option>Community</option><option>Entertainment</option>
+      </select>
+      <span class="ev-count" id="ev-count-label"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="ev-table">
+        <thead>
+          <tr>
+            <th style="width:32px;cursor:default;"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
+            <th onclick="sortBy('Name')">Event</th>
+            <th onclick="sortBy('Category')">Category</th>
+            <th onclick="sortBy('Date')">Date</th>
+            <th onclick="sortBy('Time')">Time</th>
+            <th onclick="sortBy('Venue')">Venue</th>
+            <th onclick="sortBy('Price')">Price</th>
+          </tr>
+        </thead>
+        <tbody id="ev-tbody"></tbody>
+      </table>
+    </div>
+    <button id="show-more-btn" style="display:none" onclick="showMore()"></button>
+  </div>
+
+  <!-- ── Itinerary ──────────────────────────────────────────────────────── -->
+  <div class="card" id="itinerary-panel">
+    <h2>🗓 Evening Itinerary</h2>
+    <div id="itin-loading" class="itin-loading" style="display:none">
+      <div class="spinner"></div>
+      Crafting your evening plan…
+    </div>
+    <div id="itin-body" class="itin-body"></div>
+    <div class="itin-actions" id="itin-actions" style="display:none">
+      <button class="itin-btn itin-btn-back" onclick="backToBrowser()">← Back to events</button>
+      <button class="itin-btn itin-btn-dl"   onclick="downloadItinerary()">⬇ Download</button>
+    </div>
+  </div>
+
   <!-- ── Error ───────────────────────────────────────────────────────────── -->
   <div id="error-panel">
     ⚠ <span id="error-msg"></span>
@@ -382,6 +512,13 @@
   </div>
 
 </main>
+
+<!-- Sticky selection bar — lives outside main so it overlays everything -->
+<div id="sel-bar">
+  <span id="sel-bar-count">0 events selected</span>
+  <button id="sel-bar-clear" onclick="clearSelection()">✕ Clear</button>
+  <button id="sel-bar-plan"  onclick="planEvening()">🗓 Plan My Evening</button>
+</div>
 
 <footer>
   <a href="https://github.com/colten-vincik/event-aggregator" target="_blank">GitHub</a>
@@ -554,6 +691,7 @@ async function fetchResult(jobId) {
     renderBreakdown(r.by_category || {});
     renderPicks(r.picks || []);
     show('results-panel');
+    loadEvents(jobId);
   } catch (e) {
     showError('Could not retrieve results: ' + e.message);
   }
@@ -725,6 +863,259 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  EVENT BROWSER
+// ════════════════════════════════════════════════════════════════════════════
+let _jobId         = null;
+let _eventsData    = [];   // full list from /events/<jobId>
+let _filtered      = [];   // after search + category filter
+let _selected      = new Map(); // key → event object
+let _visibleCount  = 75;
+let _sortCol       = 'Date';
+let _sortAsc       = true;
+let _itineraryText = '';
+
+const CAT_COLORS = {
+  'Music':'#1F3864','Arts & Theatre':'#833C00','Film':'#1a1a1a',
+  'Sports':'#375623','Nature & Parks':'#2d6a4f','Food & Drink':'#7b3f00',
+  'Education':'#2E75B6','Community':'#6b4c9a','Shopping':'#b5451b',
+  'Amusement':'#c05700','Entertainment':'#595959',
+};
+
+async function loadEvents(jobId) {
+  _jobId = jobId;
+  try {
+    const res  = await fetch('/events/' + jobId);
+    _eventsData = await res.json();
+    applyFilter();
+    show('browser-panel');
+    // scroll table into view smoothly
+    document.getElementById('browser-panel').scrollIntoView({behavior:'smooth', block:'start'});
+  } catch(e) {
+    console.warn('Could not load event list:', e);
+  }
+}
+
+function applyFilter() {
+  const q    = (document.getElementById('ev-search').value || '').toLowerCase();
+  const cat  = (document.getElementById('ev-cat-filter').value || '').toLowerCase();
+  _filtered  = _eventsData.filter(e => {
+    if (cat && (e.Category||'').toLowerCase() !== cat) return false;
+    if (q) {
+      const hay = [e.Name, e.Venue, e.Category, e.City, e.Source].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  // Stable sort
+  _filtered.sort((a, b) => {
+    let av = (a[_sortCol] || '').toString().toLowerCase();
+    let bv = (b[_sortCol] || '').toString().toLowerCase();
+    if (av < bv) return _sortAsc ? -1 :  1;
+    if (av > bv) return _sortAsc ?  1 : -1;
+    return 0;
+  });
+  _visibleCount = 75;
+  renderTable();
+}
+
+function sortBy(col) {
+  if (_sortCol === col) { _sortAsc = !_sortAsc; }
+  else { _sortCol = col; _sortAsc = true; }
+  // Update header classes
+  document.querySelectorAll('.ev-table thead th').forEach(th => {
+    th.classList.remove('sorted-asc','sorted-desc');
+    if (th.textContent.trim() === col ||
+        (col === 'Name' && th.textContent.includes('Event'))) {
+      th.classList.add(_sortAsc ? 'sorted-asc' : 'sorted-desc');
+    }
+  });
+  applyFilter();
+}
+
+function renderTable() {
+  const tbody  = document.getElementById('ev-tbody');
+  const slice  = _filtered.slice(0, _visibleCount);
+  const total  = _filtered.length;
+  document.getElementById('ev-count-label').textContent =
+    total === _eventsData.length
+      ? `${total} events`
+      : `${total} of ${_eventsData.length} events`;
+
+  tbody.innerHTML = '';
+  slice.forEach(e => {
+    const key      = (e.Name||'').toLowerCase().slice(0,60);
+    const sel      = _selected.has(key);
+    const color    = CAT_COLORS[e.Category] || '#595959';
+    const nameCell = e.URL
+      ? `<a href="${esc(e.URL)}" target="_blank" onclick="event.stopPropagation()">${esc(e.Name)}</a>`
+      : esc(e.Name);
+    const tr = document.createElement('tr');
+    tr.dataset.key = key;
+    if (sel) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td style="text-align:center">
+        <input type="checkbox" ${sel?'checked':''} onclick="event.stopPropagation();toggleRow('${key.replace(/'/g,"\\'")}')">
+      </td>
+      <td class="td-name">${nameCell}</td>
+      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(e.Category||'')}</span></td>
+      <td style="white-space:nowrap">${esc(e.Date||'')}</td>
+      <td style="white-space:nowrap">${esc(e.Time||'')}</td>
+      <td>${esc(e.Venue||'')}</td>
+      <td style="white-space:nowrap">${esc(e.Price||'')}</td>`;
+    tr.addEventListener('click', () => toggleRow(key));
+    tbody.appendChild(tr);
+  });
+
+  const more = document.getElementById('show-more-btn');
+  if (_visibleCount < total) {
+    more.style.display = 'block';
+    more.textContent   = `Show more (${total - _visibleCount} remaining)`;
+  } else {
+    more.style.display = 'none';
+  }
+
+  // Sync select-all checkbox
+  const allVis = slice.every(e => _selected.has((e.Name||'').toLowerCase().slice(0,60)));
+  document.getElementById('select-all').checked = slice.length > 0 && allVis;
+}
+
+function showMore() {
+  _visibleCount += 75;
+  renderTable();
+}
+
+function toggleRow(key) {
+  const e = _filtered.find(ev => (ev.Name||'').toLowerCase().slice(0,60) === key);
+  if (!e) return;
+  if (_selected.has(key)) { _selected.delete(key); }
+  else                    { _selected.set(key, e); }
+  // Sync checkbox + row highlight in DOM
+  const tr = document.querySelector(`tr[data-key="${CSS.escape(key)}"]`);
+  if (tr) {
+    tr.classList.toggle('selected', _selected.has(key));
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = _selected.has(key);
+  }
+  updateSelectionBar();
+}
+
+function toggleSelectAll(master) {
+  const slice = _filtered.slice(0, _visibleCount);
+  if (master.checked) {
+    slice.forEach(e => {
+      const k = (e.Name||'').toLowerCase().slice(0,60);
+      _selected.set(k, e);
+    });
+  } else {
+    slice.forEach(e => {
+      const k = (e.Name||'').toLowerCase().slice(0,60);
+      _selected.delete(k);
+    });
+  }
+  renderTable();
+  updateSelectionBar();
+}
+
+function clearSelection() {
+  _selected.clear();
+  renderTable();
+  updateSelectionBar();
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById('sel-bar');
+  const n   = _selected.size;
+  if (n === 0) {
+    bar.style.display = 'none';
+    document.body.style.paddingBottom = '';
+  } else {
+    bar.style.display = 'flex';
+    document.body.style.paddingBottom = '64px'; // prevent overlap
+    document.getElementById('sel-bar-count').textContent =
+      `${n} event${n===1?'':'s'} selected`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PLAN MY EVENING
+// ════════════════════════════════════════════════════════════════════════════
+async function planEvening() {
+  if (_selected.size === 0) return;
+  const events = [..._selected.values()];
+
+  // Switch view
+  hide('browser-panel');
+  hide('sel-bar');
+  document.body.style.paddingBottom = '';
+  show('itinerary-panel');
+  document.getElementById('itin-loading').style.display = 'block';
+  document.getElementById('itin-body').innerHTML = '';
+  document.getElementById('itin-actions').style.display = 'none';
+  document.getElementById('itinerary-panel').scrollIntoView({behavior:'smooth'});
+
+  try {
+    const res  = await fetch('/plan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({events}),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    _itineraryText = data.itinerary;
+    renderItinerary(data.itinerary);
+  } catch(e) {
+    document.getElementById('itin-body').innerHTML =
+      `<div style="color:var(--red);padding:16px">⚠ ${esc(e.message)}</div>`;
+  } finally {
+    document.getElementById('itin-loading').style.display = 'none';
+    document.getElementById('itin-actions').style.display = 'flex';
+  }
+}
+
+function renderItinerary(text) {
+  // Convert markdown bold, then render line-by-line with timeline highlighting
+  const escaped = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,'<em>$1</em>');
+
+  const lines  = escaped.split('\n');
+  let   html   = '';
+  const timeRe = /^\d{1,2}:\d{2}\s*(AM|PM|am|pm)/;
+  const bulletRe = /^[•\-\*]\s/;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { html += '<br>'; continue; }
+    if (timeRe.test(line)) {
+      html += `<div class="itin-entry">${line}</div>`;
+    } else if (bulletRe.test(line)) {
+      html += `<div class="itin-bullet">&#8226; ${line.slice(2)}</div>`;
+    } else {
+      html += `<div class="itin-line">${line}</div>`;
+    }
+  }
+  document.getElementById('itin-body').innerHTML = html;
+}
+
+function backToBrowser() {
+  hide('itinerary-panel');
+  show('browser-panel');
+  updateSelectionBar(); // re-show sel bar if still selected
+  document.getElementById('browser-panel').scrollIntoView({behavior:'smooth'});
+}
+
+function downloadItinerary() {
+  if (!_itineraryText) return;
+  const blob = new Blob([_itineraryText], {type: 'text/plain'});
+  const a    = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: 'evening_itinerary.txt',
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+}
 </script>
 </body>
 </html>

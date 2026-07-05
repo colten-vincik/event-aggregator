@@ -125,6 +125,8 @@ def run(cities: list[str],
         report_path = out_dir / f"run_report_{ts}.txt"
 
         picks = _agg.quick_pick(all_events, n=5)
+        def _clean(e):
+            return {k: v for k, v in e.items() if not k.startswith("_")}
 
         from openpyxl import Workbook
         wb = Workbook()
@@ -150,6 +152,7 @@ def run(cities: list[str],
             "attractions": len(all_atts),
             "elapsed":     round(elapsed, 1),
             "picks":       picks,
+            "events_data": [_clean(e) for e in all_events],
             "by_category": dict(
                 sorted(
                     __import__("collections").Counter(
