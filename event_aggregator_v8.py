@@ -380,6 +380,12 @@ def parse_date(s):
     if re.match(r"^\d{10}$", s.strip()):
         try: return datetime.fromtimestamp(int(s)).strftime("%Y-%m-%d")
         except: pass
+    # RFC 822 (RSS): "Fri, 03 Jul 2026 06:22:37 +0000"
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(s).strftime("%Y-%m-%d")
+    except Exception:
+        pass
     for fmt in ("%B %d, %Y","%b %d, %Y","%m/%d/%Y","%B %d","%b %d"):
         try:
             dt = datetime.strptime(s.strip()[:20], fmt)
@@ -418,10 +424,11 @@ def geocode(location):
     with _GEO_LOCK: _GEO_CACHE[location] = result
     return result
 
-def ev(name, cat, date="", time_="", venue="", address="", city="", price="", url="", source=""):
-    return {"Name":name,"Category":cat,"Date":date,"Time":time_,
+def ev(name, cat, date="", time_="", venue="", address="", city="", price="", url="", source="",
+       date_end="", trusted=False):
+    return {"Name":name,"Category":cat,"Date":date,"DateEnd":date_end,"Time":time_,
             "Venue":venue,"Address":address,"City":city,
-            "Price":price,"URL":url,"Source":source}
+            "Price":price,"URL":url,"Source":source,"_trusted":trusted}
 
 def att(name, cat, type_="", address="", city="", url="", source="",
         lat=None, lon=None, desc=""):
@@ -453,25 +460,31 @@ _NON_EVENT_URL_RE = re.compile(
 )
 
 def _is_valid_event(e: dict) -> bool:
-    """Gate: True only when e is a real, upcoming, linkable event.
+    """Gate: True only when e is a real, upcoming event.
 
     Rules enforced:
       • Name must be at least 3 characters and not a list-article title
-      • URL must be present and must not point to a music-streaming or song/album page
+      • URL must be present and must not be a streaming/song page
+        (waived for trusted sources — government APIs, open data portals)
       • Date must be present
       • If date is a parseable YYYY-MM-DD it must be today or in the future
+        (end date is used when available so multi-day events aren't dropped early)
     """
-    name = (e.get("Name") or "").strip()
-    url  = (e.get("URL")  or "").strip()
-    date = (e.get("Date") or "").strip()
+    name    = (e.get("Name")    or "").strip()
+    url     = (e.get("URL")     or "").strip()
+    date    = (e.get("Date")    or "").strip()
+    date_end = (e.get("DateEnd") or "").strip()
+    trusted = e.get("_trusted", False)
 
-    if len(name) < 3:                    return False
-    if _is_list_article(name):           return False
-    if not url:                          return False
-    if _NON_EVENT_URL_RE.search(url):    return False
-    if not date:                         return False
-    # Only reject when we have a clean ISO date and it's clearly in the past
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", date) and date < _TODAY_STR:
+    if len(name) < 3:               return False
+    if _is_list_article(name):      return False
+    if not trusted:
+        if not url:                 return False
+        if _NON_EVENT_URL_RE.search(url): return False
+    if not date:                    return False
+    # Use end date when available so multi-day events stay visible until they finish
+    relevance_date = date_end if date_end else date
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", relevance_date) and relevance_date < _TODAY_STR:
         return False
     return True
 
@@ -1093,8 +1106,10 @@ def fetch_ticketmaster(location, cfg, max_pages=5, tag="",
                 "Film": "Film", "Miscellaneous": "Entertainment",
             }.get(segment, classify(name))
 
+            end_date_str = parse_date((dates.get("end") or {}).get("localDate", ""))
             all_events.append(ev(name, cat, date_str, "", venue_name,
-                                 address_str, location, price_str, url, "Ticketmaster"))
+                                 address_str, location, price_str, url, "Ticketmaster",
+                                 date_end=end_date_str, trusted=True))
 
         page_info = data.get("page", {})
         if page >= page_info.get("totalPages", 1) - 1:
@@ -1255,8 +1270,10 @@ def fetch_nps(location, cfg, tag="", date_from="", date_to=""):
             price_str = "Free" if item.get("isfree") == "true" else ""
             cat      = classify(name)
 
+            date_end_str = parse_date(item.get("dateend", ""))
             all_events.append(ev(name, cat, date_str, time_str, park,
-                                 loc, location, price_str, url, "NPS"))
+                                 loc, location, price_str, url, "NPS",
+                                 date_end=date_end_str, trusted=True))
 
         total = int(data.get("total", 0))
         start += len(items)
@@ -1322,11 +1339,72 @@ def fetch_socrata_permits(location, cfg, tag=""):
 #  EVENT SOURCES — NYC-SPECIFIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_nyc_permitted(limit=2000, tag=""):
+def fetch_skint(max_items=40, tag=""):
+    """The Skint — free NYC events, RSS feed. Individual event posts only."""
+    tprint(f"  [{tag}] → The Skint (free NYC events)…")
+    r = get("https://www.theskint.com/feed/", min_gap=1.2,
+            hdrs={"Accept": "application/rss+xml,application/xml,*/*"})
+    if not r: return []
+
+    soup = BeautifulSoup(r.text, "lxml-xml")
+    items = soup.find_all("item")[:max_items]
+    all_events, seen = [], set()
+
+    for item in items:
+        title_el = item.find("title")
+        link_el  = item.find("link")
+        pub_el   = item.find("pubDate")
+        if not title_el: continue
+
+        title = title_el.get_text(strip=True)
+        # Skip weekly roundup posts (e.g. "FRI-MON, 7/3-6: SKINT HOLIDAY WEEKEND")
+        if _is_list_article(title): continue
+        if re.match(r"(?i)^(mon|tue|wed|thu|fri|sat|sun).{0,10}\d+[/-]\d+", title): continue
+
+        skint_url = link_el.get_text(strip=True) if link_el else ""
+        pub_date  = parse_date(pub_el.get_text() if pub_el else "")
+
+        # Prefer an external event URL from the body content
+        content_el = item.find("content:encoded") or item.find("description")
+        ext_url = skint_url
+        if content_el:
+            csoup = BeautifulSoup(content_el.get_text(), "lxml")
+            for a in csoup.find_all("a", href=True):
+                href = a["href"]
+                if "theskint.com" not in href and href.startswith("http"):
+                    ext_url = href
+                    break
+
+        key = title.lower()[:60]
+        if not key or key in seen: continue
+        seen.add(key)
+
+        all_events.append(ev(title, classify(title), pub_date, "",
+                             "", "", "New York, NY", "Free",
+                             ext_url, "The Skint"))
+
+    tprint(f"  [{tag}] ✓ The Skint → {len(all_events)}")
+    RUNLOG.source("The Skint", "New York, NY", len(all_events))
+    return all_events
+
+
+def fetch_nyc_permitted(limit=2000, tag="", date_from="", date_to=""):
     tprint(f"  [{tag}] → NYC Open Data: Permitted Events…")
-    today = datetime.today().strftime("%Y-%m-%dT00:00:00.000")
+    today    = datetime.today().strftime("%Y-%m-%dT00:00:00.000")
+    # When date range given, fetch events that overlap the window
+    # (start_date_time <= date_to AND end_date_time >= date_from)
+    if date_from and date_to:
+        where = (f"start_date_time<='{date_to}T23:59:59.000'"
+                 f" AND end_date_time>='{date_from}T00:00:00.000'")
+    elif date_from:
+        where = f"end_date_time>='{date_from}T00:00:00.000'"
+    elif date_to:
+        where = (f"start_date_time<='{date_to}T23:59:59.000'"
+                 f" AND end_date_time>='{today}'")
+    else:
+        where = f"start_date_time>='{today}'"
     url = (f"https://data.cityofnewyork.us/resource/tvpp-9vvx.json"
-           f"?$limit={limit}&$where=start_date_time>='{today}'&$order=start_date_time+ASC")
+           f"?$limit={limit}&$where={where}&$order=start_date_time+ASC")
     r = get(url, min_gap=1.0, hdrs={"Accept":"application/json"})
     if not r: return []
     skip = {"closure","n/a","none","nan",""}
@@ -1334,12 +1412,14 @@ def fetch_nyc_permitted(limit=2000, tag=""):
     for item in r.json():
         name = item.get("event_name","").strip()
         if name.lower() in skip: continue
-        dr = item.get("start_date_time","")
+        dr     = item.get("start_date_time","")
+        dr_end = item.get("end_date_time","")
         out.append(ev(name, classify(item.get("event_type","")+" "+name),
             parse_date(dr), dr[11:16] if len(dr)>10 else "",
             item.get("event_location",""),"",
             item.get("event_borough","New York")+", NY",
-            "Varies","","NYC Open Data"))
+            "Varies","","NYC Open Data",
+            date_end=parse_date(dr_end), trusted=True))
     tprint(f"  [{tag}] ✓ NYC Permitted → {len(out)}")
     RUNLOG.source("NYC Open Data (Events)", "New York, NY", len(out))
     return out
@@ -1362,7 +1442,8 @@ def fetch_nyc_film_permits(limit=200, tag=""):
             parse_date(dr), dr[11:16] if len(dr)>10 else "",
             item.get("parkingheld",""),"",
             item.get("borough","New York")+", NY",
-            "Industry/Varies","","NYC Film Permits"))
+            "Industry/Varies","","NYC Film Permits",
+            trusted=True))
     tprint(f"  [{tag}] ✓ NYC Film Permits → {len(out)}")
     RUNLOG.source("NYC Film Permits", "New York, NY", len(out))
     return out
@@ -1644,10 +1725,12 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
     event_tasks = []
     if is_nyc:
         event_tasks += [
-            partial(fetch_nyc_permitted,  2000,    tag=tag),
+            partial(fetch_nyc_permitted,  2000,    tag=tag,
+                    date_from=date_from, date_to=date_to),
             partial(fetch_nyc_film_permits, 200,   tag=tag),
             partial(fetch_summerstage,    6,        tag=tag),
             partial(fetch_prospect_park,  5,        tag=tag),
+            partial(fetch_skint,          40,       tag=tag),
         ]
     if cfg:
         event_tasks += [
@@ -1725,9 +1808,12 @@ def dedup(lst, filter_articles=False, validate_events=False,
         if not k or k in seen: continue
         if filter_articles and _is_list_article(name): continue
         if validate_events and not _is_valid_event(x): continue
-        d = x.get("Date") or ""
-        if date_from and d and d < date_from: continue
-        if date_to   and d and d > date_to:   continue
+        # Overlap filter: event overlaps [date_from, date_to] if
+        #   event_start <= date_to  AND  event_end >= date_from
+        d_start = x.get("Date")    or ""
+        d_end   = x.get("DateEnd") or d_start  # single-day → start == end
+        if date_from and d_end   and d_end   < date_from: continue
+        if date_to   and d_start and d_start > date_to:   continue
         seen.add(k); out.append(x)
     return out
 
@@ -1735,7 +1821,7 @@ def dedup(lst, filter_articles=False, validate_events=False,
 #  EXCEL OUTPUT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ECOLS = ["#","Name","Category","Date","Time","Venue","Address","City","Price","URL","Source"]
+ECOLS = ["#","Name","Category","Date","Date End","Time","Venue","Address","City","Price","URL","Source"]
 ACOLS = ["#","Name","Category","Type","Description","Address","City","URL","Source"]
 
 def _title(ws, text, ncols, bg, sz=13):
@@ -1819,20 +1905,20 @@ def build_events_sheet(wb, events, label):
         row = i + 2
         bg  = CAT_COLOURS.get(e.get("Category","Other"), "F5F5F5")
         url = e.get("URL","")
-        vals = [i, e.get("Name"), e.get("Category"), e.get("Date"), e.get("Time"),
+        vals = [i, e.get("Name"), e.get("Category"), e.get("Date"),
+                e.get("DateEnd","") or "", e.get("Time"),
                 e.get("Venue"), e.get("Address"), e.get("City"),
                 e.get("Price"), url, e.get("Source")]
         for c, v in enumerate(vals, 1):
             cell = ws.cell(row, c, v); dat(cell, bg)
             if c == 1:  cell.alignment = Alignment(horizontal="center", vertical="center")
-            if c == 10: _link_cell(cell, url)
-        # Consider Name (B=38) and Venue (F=26) — whichever wraps more sets the height
+            if c == 11: _link_cell(cell, url)
         ws.row_dimensions[row].height = _row_height(
             e.get("Name",""), 38, e.get("Venue",""), 26)
     ws.freeze_panes = "A3"
     ws.auto_filter.ref = f"A2:{get_column_letter(len(ECOLS))}2"
-    set_widths(ws,{"A":5,"B":38,"C":16,"D":12,"E":7,
-                   "F":26,"G":22,"H":18,"I":10,"J":18,"K":18})
+    set_widths(ws,{"A":5,"B":38,"C":16,"D":12,"E":12,"F":7,
+                   "G":26,"H":22,"I":18,"J":10,"K":18,"L":18})
 
 def build_attractions_sheet(wb, attractions, label):
     ws = wb.create_sheet("📍 Things To Do")
