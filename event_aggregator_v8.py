@@ -325,9 +325,21 @@ CITY_CONFIG = {
     "sacramento":     {"state":"CA","timeout":None,            "eb":"ca--sacramento",     "sk_slug":None,                           "patch":[("california","sacramento")],                                                                                       "dostuff":None},
     "salt lake city": {"state":"UT","timeout":"salt-lake-city","eb":"ut--salt-lake-city", "sk_slug":None,                           "patch":[("utah","salt-lake-city")],                                                                                         "dostuff":None},
     "boise":          {"state":"ID","timeout":None,            "eb":"id--boise",          "sk_slug":None,                           "patch":[("idaho","boise")],                                                                                                 "dostuff":None},
+    # ── NYC Transit-Accessible Day Trips ──────────────────────────────────────────
+    "cold spring":     {"state":"NY","timeout":None, "eb":"ny--cold-spring", "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "beacon":          {"state":"NY","timeout":None, "eb":"ny--beacon",      "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "tarrytown":       {"state":"NY","timeout":None, "eb":"ny--tarrytown",   "sk_slug":None, "patch":[("new-york","tarrytown")], "dostuff":None, "_near_nyc":True},
+    "rhinebeck":       {"state":"NY","timeout":None, "eb":"ny--rhinebeck",   "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "asbury park":     {"state":"NJ","timeout":None, "eb":"nj--asbury-park", "sk_slug":None, "patch":[("new-jersey","asbury-park")], "dostuff":None, "_near_nyc":True},
+    "princeton":       {"state":"NJ","timeout":None, "eb":"nj--princeton",   "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "montauk":         {"state":"NY","timeout":None, "eb":"ny--montauk",     "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "the hamptons":    {"state":"NY","timeout":None, "eb":"ny--the-hamptons","sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "hudson":          {"state":"NY","timeout":None, "eb":"ny--hudson",      "sk_slug":None, "patch":[], "dostuff":None, "_near_nyc":True},
+    "hoboken":         {"state":"NJ","timeout":None, "eb":"nj--hoboken",     "sk_slug":None, "patch":[("new-jersey","hoboken")], "dostuff":None, "_near_nyc":True},
 }
 
 REGIONS = {
+    "nyc area": ["new york","cold spring","beacon","tarrytown","rhinebeck","asbury park","hoboken","new haven"],
     "northeast": ["new york","boston","philadelphia","washington","baltimore","pittsburgh","buffalo","hartford","providence","albany","new haven"],
     "southeast": ["miami","atlanta","nashville","charlotte","orlando","tampa","new orleans","raleigh","richmond","memphis","louisville","jacksonville","savannah"],
     "midwest":   ["chicago","detroit","minneapolis","columbus","indianapolis","kansas city","st louis","cincinnati","cleveland","milwaukee"],
@@ -544,8 +556,8 @@ def geocode(location):
     return result
 
 def ev(name, cat, date="", time_="", venue="", address="", city="", price="", url="", source="",
-       date_end="", trusted=False):
-    return {"Name":name,"Category":cat,"Date":date,"DateEnd":date_end,"Time":time_,
+       date_end="", trusted=False, subcategory=""):
+    return {"Name":name,"Category":cat,"Subcategory":subcategory,"Date":date,"DateEnd":date_end,"Time":time_,
             "Venue":venue,"Address":address,"City":city,
             "Price":price,"URL":url,"Source":source,"_trusted":trusted}
 
@@ -1566,7 +1578,8 @@ def fetch_playbill(tag=""):
             # availability day-of-week filter doesn't incorrectly drop them.
             all_events.append(ev(title, "Arts & Theatre", "", "", venue, "",
                                  "New York, NY", "Varies", ticket_url,
-                                 f"Playbill ({label})", trusted=True))
+                                 f"Playbill ({label})", trusted=True,
+                                 subcategory=label))
 
     tprint(f"  [{tag}] ✓ Playbill → {len(all_events)}")
     RUNLOG.source("Playbill", "New York, NY", len(all_events))
@@ -1631,6 +1644,361 @@ def fetch_met_events(tag=""):
     tprint(f"  [{tag}] ✓ The Met → {len(all_events)}")
     RUNLOG.source("The Met", "New York, NY", len(all_events))
     return all_events
+
+
+def fetch_amnh(tag=""):
+    """American Museum of Natural History — events calendar."""
+    tprint(f"  [{tag}] → AMNH…")
+    url = "https://www.amnh.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.amnh.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "AMNH")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.amnh.org" + ev_url
+                date_el = el.find(["time","[class*='date']"])
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                cat = "Arts & Theatre" if any(w in title.lower() for w in ("exhibition","exhibit","gallery","display")) else classify(title)
+                events.append(ev(title, cat, date_str, "", "American Museum of Natural History",
+                                 "200 Central Park West", "New York, NY", "", ev_url, "AMNH", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ AMNH → {len(events)}")
+    RUNLOG.source("AMNH", "New York, NY", len(events))
+    return events
+
+
+def fetch_moma(tag=""):
+    """MoMA — Museum of Modern Art calendar."""
+    tprint(f"  [{tag}] → MoMA…")
+    url = "https://www.moma.org/calendar/"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.moma.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "MoMA")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='calendar']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.moma.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Arts & Theatre", date_str, "", "MoMA",
+                                 "11 W 53rd St", "New York, NY", "", ev_url, "MoMA", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ MoMA → {len(events)}")
+    RUNLOG.source("MoMA", "New York, NY", len(events))
+    return events
+
+
+def fetch_guggenheim(tag=""):
+    """Guggenheim Museum — events and exhibitions."""
+    tprint(f"  [{tag}] → Guggenheim…")
+    url = "https://www.guggenheim.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.guggenheim.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Guggenheim Museum")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.guggenheim.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Arts & Theatre", date_str, "", "Guggenheim Museum",
+                                 "1071 Fifth Ave", "New York, NY", "", ev_url, "Guggenheim Museum", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Guggenheim Museum → {len(events)}")
+    RUNLOG.source("Guggenheim Museum", "New York, NY", len(events))
+    return events
+
+
+def fetch_whitney(tag=""):
+    """Whitney Museum of American Art — events calendar."""
+    tprint(f"  [{tag}] → Whitney Museum…")
+    url = "https://whitney.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://whitney.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Whitney Museum")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://whitney.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Arts & Theatre", date_str, "", "Whitney Museum",
+                                 "99 Gansevoort St", "New York, NY", "", ev_url, "Whitney Museum", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Whitney Museum → {len(events)}")
+    RUNLOG.source("Whitney Museum", "New York, NY", len(events))
+    return events
+
+
+def fetch_brooklyn_museum(tag=""):
+    """Brooklyn Museum — events and exhibitions."""
+    tprint(f"  [{tag}] → Brooklyn Museum…")
+    url = "https://www.brooklynmuseum.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.brooklynmuseum.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "Brooklyn, NY", "Brooklyn Museum")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.brooklynmuseum.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Arts & Theatre", date_str, "", "Brooklyn Museum",
+                                 "200 Eastern Pkwy", "Brooklyn, NY", "", ev_url, "Brooklyn Museum", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Brooklyn Museum → {len(events)}")
+    RUNLOG.source("Brooklyn Museum", "Brooklyn, NY", len(events))
+    return events
+
+
+def fetch_92y(tag=""):
+    """92NY — lectures, performances, and cultural events."""
+    tprint(f"  [{tag}] → 92NY…")
+    url = "https://www.92ny.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.92ny.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "92NY")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.92ny.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                time_el = el.find(class_=lambda c: c and "time" in c.lower())
+                time_str = parse_time(time_el.get_text() if time_el else "")
+                events.append(ev(title, classify(title), date_str, time_str, "92NY",
+                                 "1395 Lexington Ave", "New York, NY", "", ev_url, "92NY", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ 92NY → {len(events)}")
+    RUNLOG.source("92NY", "New York, NY", len(events))
+    return events
+
+
+def fetch_film_forum(tag=""):
+    """Film Forum — independent cinema screenings."""
+    tprint(f"  [{tag}] → Film Forum…")
+    url = "https://filmforum.org/"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://filmforum.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Film Forum")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='film'], [class*='screening'], [class*='event'], [class*='card']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://filmforum.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Film", date_str, "", "Film Forum",
+                                 "209 W Houston St", "New York, NY", "", ev_url, "Film Forum", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Film Forum → {len(events)}")
+    RUNLOG.source("Film Forum", "New York, NY", len(events))
+    return events
+
+
+def fetch_ifc_center(tag=""):
+    """IFC Center — independent cinema screenings."""
+    tprint(f"  [{tag}] → IFC Center…")
+    url = "https://www.ifccenter.com/"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.ifccenter.com/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "IFC Center")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='film'], [class*='screening'], [class*='event'], [class*='card']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.ifccenter.com" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Film", date_str, "", "IFC Center",
+                                 "323 Sixth Ave", "New York, NY", "", ev_url, "IFC Center", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ IFC Center → {len(events)}")
+    RUNLOG.source("IFC Center", "New York, NY", len(events))
+    return events
+
+
+def fetch_metrograph(tag=""):
+    """Metrograph — curated independent cinema."""
+    tprint(f"  [{tag}] → Metrograph…")
+    url = "https://metrograph.com/"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://metrograph.com/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Metrograph")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='film'], [class*='screening'], [class*='event'], [class*='card']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://metrograph.com" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Film", date_str, "", "Metrograph",
+                                 "7 Ludlow St", "New York, NY", "", ev_url, "Metrograph", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Metrograph → {len(events)}")
+    RUNLOG.source("Metrograph", "New York, NY", len(events))
+    return events
+
+
+def fetch_anthology(tag=""):
+    """Anthology Film Archives — experimental and avant-garde cinema."""
+    tprint(f"  [{tag}] → Anthology Film Archives…")
+    url = "https://anthologyfilmarchives.org/film_screenings/calendar"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://anthologyfilmarchives.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Anthology Film Archives")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='film'], [class*='screening'], [class*='event'], [class*='calendar']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://anthologyfilmarchives.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                events.append(ev(title, "Film", date_str, "", "Anthology Film Archives",
+                                 "32 Second Ave", "New York, NY", "", ev_url, "Anthology Film Archives", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Anthology Film Archives → {len(events)}")
+    RUNLOG.source("Anthology Film Archives", "New York, NY", len(events))
+    return events
+
+
+def fetch_bam(tag=""):
+    """Brooklyn Academy of Music — performing arts events."""
+    tprint(f"  [{tag}] → BAM…")
+    url = "https://www.bam.org/events"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.bam.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "BAM")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.bam.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                time_el = el.find(class_=lambda c: c and "time" in c.lower())
+                time_str = parse_time(time_el.get_text() if time_el else "")
+                events.append(ev(title, classify(title), date_str, time_str, "BAM",
+                                 "30 Lafayette Ave", "New York, NY", "", ev_url, "BAM", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ BAM → {len(events)}")
+    RUNLOG.source("BAM", "New York, NY", len(events))
+    return events
+
+
+def fetch_lincoln_center(tag=""):
+    """Lincoln Center — performing arts events."""
+    tprint(f"  [{tag}] → Lincoln Center…")
+    url = "https://www.lincolncenter.org/whats-on"
+    r = get(url, min_gap=1.3, hdrs={"Referer": "https://www.lincolncenter.org/"})
+    if not r: return []
+    soup = BeautifulSoup(r.text, "lxml")
+    events = _ld_events(soup, "New York, NY", "Lincoln Center")
+    if not events:
+        try:
+            for el in soup.select("article, [class*='event'], [class*='card'], [class*='program'], [class*='production']"):
+                title_el = el.find(["h2","h3","h4","h5"])
+                if not title_el: continue
+                title = title_el.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                a = el.find("a", href=True)
+                ev_url = a["href"] if a else url
+                if ev_url.startswith("/"): ev_url = "https://www.lincolncenter.org" + ev_url
+                date_el = el.find("time")
+                date_str = parse_date(date_el.get("datetime", date_el.get_text()) if date_el else "")
+                time_el = el.find(class_=lambda c: c and "time" in c.lower())
+                time_str = parse_time(time_el.get_text() if time_el else "")
+                events.append(ev(title, classify(title), date_str, time_str, "Lincoln Center",
+                                 "10 Lincoln Center Plaza", "New York, NY", "", ev_url, "Lincoln Center", trusted=True))
+        except Exception:
+            pass
+    tprint(f"  [{tag}] ✓ Lincoln Center → {len(events)}")
+    RUNLOG.source("Lincoln Center", "New York, NY", len(events))
+    return events
 
 
 def fetch_skint(max_items=40, tag=""):
@@ -2040,6 +2408,18 @@ def fetch_city(location, skip_attractions=False, source_workers=6,
             partial(fetch_nyc_parks,      20,       tag=tag),
             partial(fetch_playbill,               tag=tag),
             partial(fetch_met_events,             tag=tag),
+            partial(fetch_amnh,                   tag=tag),
+            partial(fetch_moma,                   tag=tag),
+            partial(fetch_guggenheim,             tag=tag),
+            partial(fetch_whitney,                tag=tag),
+            partial(fetch_brooklyn_museum,        tag=tag),
+            partial(fetch_92y,                    tag=tag),
+            partial(fetch_film_forum,             tag=tag),
+            partial(fetch_ifc_center,             tag=tag),
+            partial(fetch_metrograph,             tag=tag),
+            partial(fetch_anthology,              tag=tag),
+            partial(fetch_bam,                    tag=tag),
+            partial(fetch_lincoln_center,         tag=tag),
         ]
     if cfg:
         event_tasks += [

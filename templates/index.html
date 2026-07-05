@@ -1183,7 +1183,7 @@ function renderTable() {
       <td style="text-align:center"><input type="checkbox" ${sel?'checked':''}
         onclick="event.stopPropagation();toggleRow('${key.replace(/'/g,"\\'")}')"></td>
       <td class="td-name">${link}</td>
-      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(e.Category||'')}</span></td>
+      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(e.Category||'')}</span>${e.Subcategory ? `<br><span style="font-size:10px;color:var(--muted)">${esc(e.Subcategory)}</span>` : ''}</td>
       <td style="white-space:nowrap">${esc(e.Date||'')}</td>
       <td style="white-space:nowrap">${esc(e.Time||'')}</td>
       <td>${esc(e.Venue||'')}</td>
@@ -1249,7 +1249,7 @@ function renderAttrTable() {
       <td style="text-align:center"><input type="checkbox" ${sel?'checked':''}
         onclick="event.stopPropagation();toggleAttrRow('${key.replace(/'/g,"\\'")}')"></td>
       <td class="td-name">${link}</td>
-      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(a.Category||'')}</span></td>
+      <td><span class="cat-badge" style="color:#fff;background:${color};border-color:${color}">${esc(a.Category||'')}</span>${a.Subcategory ? `<br><span style="font-size:10px;color:var(--muted)">${esc(a.Subcategory)}</span>` : ''}</td>
       <td style="white-space:nowrap">${esc(a.Type||'')}</td>
       <td style="white-space:nowrap">${esc(a.City||'')}</td>
       <td style="color:var(--muted);font-size:11px">${esc(desc)}</td>
